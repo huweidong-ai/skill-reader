@@ -62,23 +62,6 @@ enum SelfTest {
             check(store.safeJoin(root: "/tmp/root", rel: "sub/../../x") == nil, "join: deep traversal blocked")
         }
 
-        // ---- AgentProfile Codable（detected 不应持久化）----
-        do {
-            var p = AgentProfile(id: "x", name: "X Agent", vendor: "v", iconName: "star",
-                                 skillPath: "/tmp/__sr_nonexistent_skills__", enabled: true)
-            p.detected = true
-            let enc = try? JSONEncoder().encode(p)
-            let dec = enc.flatMap { try? JSONDecoder().decode(AgentProfile.self, from: $0) }
-            if let dec = dec {
-                check(dec.id == "x", "agentprofile: id roundtrip")
-                check(dec.name == "X Agent", "agentprofile: name roundtrip")
-                check(dec.enabled == true, "agentprofile: enabled roundtrip")
-                check(dec.detected == false, "agentprofile: detected NOT persisted (got \(dec.detected))")
-            } else {
-                check(false, "agentprofile: encode/decode failed")
-            }
-        }
-
         // ---- AgentRegistry：符号链接（使用临时目录，不触碰 ~/.agent）----
         do {
             let base = NSTemporaryDirectory() + "skillreader-agent-\(UUID().uuidString)"
@@ -107,6 +90,58 @@ enum SelfTest {
             check(resolved == target3, "agent: relink points to new target (got \(resolved ?? "nil"))")
 
             try? FileManager.default.removeItem(atPath: base)
+        }
+
+        // ---- AgentProfile.skillCount 多路径去重计数 ----
+        do {
+            let base = NSTemporaryDirectory() + "skillreader-multipath-\(UUID().uuidString)"
+            let p1 = base + "/root1"
+            let p2 = base + "/root2"
+            try? FileManager.default.createDirectory(atPath: p1 + "/skill-A", withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(atPath: p2 + "/skill-B", withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(atPath: p2 + "/skill-A", withIntermediateDirectories: true) // 同名 skill-A 与 p1 重复
+            try? "x".write(toFile: p1 + "/skill-A/SKILL.md", atomically: true, encoding: .utf8)
+            try? "x".write(toFile: p2 + "/skill-A/SKILL.md", atomically: true, encoding: .utf8)
+            try? "x".write(toFile: p2 + "/skill-B/SKILL.md", atomically: true, encoding: .utf8)
+            // skill-C 不含 SKILL.md，不应被计数
+            try? FileManager.default.createDirectory(atPath: p1 + "/skill-C", withIntermediateDirectories: true)
+            try? "x".write(toFile: p1 + "/skill-C/readme.md", atomically: true, encoding: .utf8)
+
+            let p = AgentProfile(id: "mp", name: "MultiPath", vendor: "test", iconName: "x",
+                                 skillPath: p1, extraSkillPaths: [p2])
+            check(p.detected == true, "agent-multi: detected when any path exists")
+            check(p.skillCount == 2, "agent-multi: skillCount = 2 (A+B, dedup) got \(p.skillCount)")
+            check(p.allSkillPaths.count == 2, "agent-multi: allSkillPaths returns 2 unique existing dirs")
+
+            // 全部路径不存在
+            let empty = AgentProfile(id: "mp2", name: "Empty", vendor: "test", iconName: "x",
+                                     skillPath: "/tmp/__nope1__", extraSkillPaths: ["/tmp/__nope2__"])
+            check(empty.detected == false, "agent-multi: detected=false when no path exists")
+            check(empty.skillCount == -1, "agent-multi: skillCount = -1 when no path exists")
+            check(empty.allSkillPaths.isEmpty, "agent-multi: allSkillPaths empty when no path exists")
+
+            try? FileManager.default.removeItem(atPath: base)
+        }
+
+        // ---- AgentProfile Codable：extraSkillPaths 持久化 + detected 不持久化 ----
+        do {
+            var p = AgentProfile(id: "x", name: "X Agent", vendor: "v", iconName: "star",
+                                 skillPath: "/tmp/__sr_nonexistent_skills__",
+                                 extraSkillPaths: ["/tmp/__extra1__", "/tmp/__extra2__"],
+                                 enabled: true)
+            p.detected = true
+            let enc = try? JSONEncoder().encode(p)
+            let dec = enc.flatMap { try? JSONDecoder().decode(AgentProfile.self, from: $0) }
+            if let dec = dec {
+                check(dec.id == "x", "agentprofile: id roundtrip")
+                check(dec.name == "X Agent", "agentprofile: name roundtrip")
+                check(dec.enabled == true, "agentprofile: enabled roundtrip")
+                check(dec.extraSkillPaths == ["/tmp/__extra1__", "/tmp/__extra2__"],
+                      "agentprofile: extraSkillPaths roundtrip got \(dec.extraSkillPaths)")
+                check(dec.detected == false, "agentprofile: detected NOT persisted (got \(dec.detected))")
+            } else {
+                check(false, "agentprofile: encode/decode failed")
+            }
         }
 
         // ---- 临时目录扫描 + 搜索 + 树 ----

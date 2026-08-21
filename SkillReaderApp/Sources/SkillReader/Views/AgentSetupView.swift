@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - 首次启动：Agent 配置页（仿 CC Switch 风格）
+// MARK: - 首次启动：Agent 配置页
 
 /// 在 App 真正进入阅读器之前，让用户选择要纳入管理的 Agent，
 /// 并允许自定义每个 Agent 的 skills 目录路径。
@@ -8,9 +8,6 @@ struct AgentSetupView: View {
     @EnvironmentObject var state: AppState
     @State private var agents: [AgentProfile]
     @State private var showCustomForm = false
-    @State private var customName = ""
-    @State private var customId = ""
-    @State private var customPath = ""
 
     init() {
         let current = AgentRegistry.shared.agents
@@ -45,48 +42,15 @@ struct AgentSetupView: View {
         .sheet(isPresented: $showCustomForm) { customSheet }
     }
 
-    // MARK: 顶部说明 + chip 行
+    // MARK: 顶部说明（简洁，不再抄 CC Switch 的不相关工具栏）
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 6) {
             Text("配置要管理的 Agent")
                 .font(.system(size: 18, weight: .bold))
             Text("勾选你本机安装的 Agent，SkillReader 会把它们的 skills 目录集中挂载到 ")
                 + Text("~/.agent/skills").font(.system(size: 12, design: .monospaced)).foregroundStyle(Color.accentColor)
                 + Text(" 下统一查看与管理。未自动识别的路径可手动修改。")
-
-            // 工具栏（CC Switch 风格：操作集合）
-            HStack(spacing: 8) {
-                Button {} label: {
-                    Label("检查更新", systemImage: "arrow.clockwise").font(.system(size: 11))
-                }
-                .buttonStyle(.bordered)
-                .help("检查已添加的 Agent 是否有新版本（待实现）")
-
-                Button {} label: {
-                    Label("从 ZIP 安装", systemImage: "square.and.arrow.down").font(.system(size: 11))
-                }
-                .buttonStyle(.bordered)
-                .help("从本地 ZIP 安装新 skill 包（待实现）")
-
-                Button {} label: {
-                    Label("发现技能", systemImage: "magnifyingglass").font(.system(size: 11))
-                }
-                .buttonStyle(.bordered)
-                .help("打开技能市场浏览（待实现）")
-
-                Spacer()
-            }
-
-            // Agent chip 横排（CC Switch 风格：Agent 名 + 数量）
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(agents) { agent in
-                        AgentChip(agent: agent)
-                    }
-                }
-                .padding(.horizontal, 2)
-            }
         }
         .font(.system(size: 12))
         .foregroundStyle(.secondary)
@@ -140,69 +104,143 @@ struct AgentSetupView: View {
     }
 
     // MARK: 自定义 Agent 表单
+    //
+    // 设计原则：
+    //   1) 必填项只有 Skills 目录（核心），目录选定后再派生其他字段
+    //   2) Agent 名称默认 = 上一级目录名（用户可手动覆盖）
+    //   3) ID 用目录名派生（自动）
+
+    @State private var customPath = ""
+    @State private var customName = ""
+    @State private var customId = ""
 
     private var customSheet: some View {
-        VStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             Text("添加自定义 Agent").font(.headline)
-            HStack {
-                Text("名称").frame(width: 56, alignment: .trailing)
-                TextField("显示名称", text: $customName)
+
+            Text("必填：选择 Skills 目录。名称默认取上一级文件夹名，可手动修改。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            // 1. Skills 目录（必填）
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Skills 目录").font(.system(size: 12, weight: .medium))
+                HStack(spacing: 4) {
+                    TextField("例如 ~/.myagent/skills", text: $customPath)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+                        .onChange(of: customPath) { _ in syncDerivedFields() }
+                    Button("浏览…") { pickCustomFolder() }
+                }
             }
-            HStack {
-                Text("ID").frame(width: 56, alignment: .trailing)
-                TextField("英文唯一，如 my-agent", text: $customId)
+
+            // 2. Agent 名称（默认 = 上一级目录名，可编辑）
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Agent 名称").font(.system(size: 12, weight: .medium))
+                TextField("默认取上一级文件夹名", text: $customName)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                Text("ID：\(customId.isEmpty ? "—" : customId)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .textSelection(.enabled)
             }
-            HStack {
-                Text("目录").frame(width: 56, alignment: .trailing)
-                TextField("Skills 目录路径", text: $customPath)
-                Button("浏览") { pickCustomFolder() }
-            }
+
             HStack {
                 Spacer()
-                Button("取消") { showCustomForm = false }
-                Button("添加") {
-                    let id = customId.trimmingCharacters(in: .whitespaces)
-                        .lowercased()
-                        .replacingOccurrences(of: " ", with: "-")
-                    guard !id.isEmpty, !customName.isEmpty, !customPath.isEmpty else {
-                        state.flashToast("请填写名称、ID 与目录", isError: true)
-                        return
-                    }
-                    let agent = AgentProfile(id: id, name: customName, vendor: "自定义",
-                                             iconName: "puzzlepiece", skillPath: customPath,
-                                             enabled: true, isCustom: true)
-                    agents.append(agent)
-                    customName = ""; customId = ""; customPath = ""
-                    showCustomForm = false
-                }
-                .keyboardShortcut(.return, modifiers: .command)
+                Button("取消") { resetCustomForm(); showCustomForm = false }
+                    .keyboardShortcut(.escape, modifiers: [])
+                Button("添加") { confirmAddCustom() }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(customPath.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
         .padding(20)
-        .frame(width: 440)
+        .frame(width: 480)
         .textFieldStyle(.roundedBorder)
+        .onAppear { syncDerivedFields() }
     }
 
-    // MARK: 目录选择
+    /// 选目录后：派生名称 = 上一级文件夹名；派生 ID = 目录名 lowercase 化
+    private func syncDerivedFields() {
+        let path = customPath.trimmingCharacters(in: .whitespaces)
+        guard !path.isEmpty else {
+            customName = ""
+            customId = ""
+            return
+        }
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let parentName = url.deletingLastPathComponent().lastPathComponent
+        if customName.isEmpty || customName == derivedName(from: customPath) {
+            customName = parentName.isEmpty ? "自定义" : parentName
+        }
+        customId = derivedID(from: parentName)
+    }
 
-    private func pickFolder(for agent: Binding<AgentProfile>) {
-        guard let url = openDirPanel() else { return }
-        agent.skillPath.wrappedValue = url.path
+    private func derivedName(from path: String) -> String {
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        return url.deletingLastPathComponent().lastPathComponent
+    }
+
+    private func derivedID(from name: String) -> String {
+        let lower = name.lowercased()
+        let allowed = lower.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? Character($0) : "-" }
+        var s = String(allowed)
+        while s.contains("--") { s = s.replacingOccurrences(of: "--", with: "-") }
+        return s.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
     private func pickCustomFolder() {
-        guard let url = openDirPanel() else { return }
-        customPath = url.path
-    }
-
-    private func openDirPanel() -> URL? {
         let panel = NSOpenPanel()
         panel.title = "选择 Skills 目录"
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = "选择"
-        return panel.runModal() == .OK ? panel.url : nil
+        if panel.runModal() == .OK, let url = panel.url {
+            customPath = url.path
+            syncDerivedFields()
+        }
+    }
+
+    private func resetCustomForm() {
+        customPath = ""
+        customName = ""
+        customId = ""
+    }
+
+    private func confirmAddCustom() {
+        let path = customPath.trimmingCharacters(in: .whitespaces)
+        guard !path.isEmpty else { return }
+        let id = customId.trimmingCharacters(in: .whitespaces).isEmpty
+            ? derivedID(from: derivedName(from: path))
+            : customId
+        let name = customName.trimmingCharacters(in: .whitespaces).isEmpty
+            ? derivedName(from: path)
+            : customName
+        let agent = AgentProfile(
+            id: id, name: name, vendor: "自定义",
+            iconName: "puzzlepiece.extension", skillPath: path,
+            enabled: true, isCustom: true
+        )
+        agents.append(agent)
+        resetCustomForm()
+        showCustomForm = false
+    }
+
+    // MARK: 目录选择（内置 Agent 卡片用）
+
+    private func pickFolder(for agent: Binding<AgentProfile>) {
+        let panel = NSOpenPanel()
+        panel.title = "选择 Skills 目录"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "选择"
+        if panel.runModal() == .OK, let url = panel.url {
+            agent.wrappedValue.skillPath = url.path
+        }
     }
 }
 
@@ -244,6 +282,9 @@ struct AgentCard: View {
                     Text("\(count) 个 skill")
                         .font(.system(size: 10))
                         .foregroundStyle(count > 0 ? .primary : .tertiary)
+                    if agent.extraSkillPaths.count > 0 {
+                        Text("· 多路径").font(.system(size: 10)).foregroundStyle(.tertiary)
+                    }
                 }
                 Spacer()
             }
@@ -260,6 +301,27 @@ struct AgentCard: View {
                         Button("浏览", action: onBrowse)
                             .buttonStyle(.borderless)
                             .font(.system(size: 11))
+                    }
+                    // 额外路径（仅在有内容时显示）：合并的 skill 根目录
+                    if !agent.extraSkillPaths.isEmpty {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("额外 skill 路径")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                            ForEach(agent.extraSkillPaths, id: \.self) { p in
+                                HStack(spacing: 4) {
+                                    Image(systemName: "link")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.tertiary)
+                                    Text(p)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
+                        }
+                        .padding(.top, 2)
                     }
                     if agent.isCustom {
                         HStack(spacing: 4) {
@@ -287,36 +349,5 @@ struct AgentCard: View {
                         .stroke(agent.enabled ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
                 )
         )
-    }
-}
-
-// MARK: - Agent chip（顶部横排：Agent 名 + skill 数）
-
-struct AgentChip: View {
-    let agent: AgentProfile
-
-    var body: some View {
-        let count = agent.skillCount
-        let total = count > 0 ? count : 0
-        HStack(spacing: 4) {
-            Image(systemName: agent.iconName)
-                .font(.system(size: 10))
-            Text(agent.name)
-                .font(.system(size: 11, weight: .medium))
-            Text("\(total)")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(agent.detected ? .accentColor : .secondary)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-            Capsule()
-                .fill(agent.detected ? Color.accentColor.opacity(0.12) : Color.gray.opacity(0.1))
-                .overlay(
-                    Capsule().stroke(agent.detected ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
-                )
-        )
-        .foregroundStyle(.primary)
-        .help("\(agent.skillPath)\n含 SKILL.md 的目录数: \(count < 0 ? "路径不存在" : "\(count)")")
     }
 }

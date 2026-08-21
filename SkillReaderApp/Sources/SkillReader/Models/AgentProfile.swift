@@ -4,35 +4,48 @@ import Foundation
 
 /// 一个被 SkillReader 管理的 Agent（Claude Code / OpenClaw / WorkBuddy …）
 /// `detected` 是运行时探测结果，不写入配置文件（每次载入都重新探测）。
+/// 部分 Agent（OpenClaw / QoderWork 等）有多个 skill 目录：托管 / 工作区 / 内置 等，
+/// 通过 `extraSkillPaths` 合并参与探测；skillCount 跨路径去重计数。
 struct AgentProfile: Identifiable, Codable, Equatable {
     var id: String            // 唯一 ID，也是 ~/.agent/skills 下的符号链接名
     var name: String          // 显示名
     var vendor: String        // 厂商 / 来源
     var iconName: String      // SF Symbol
     var execPath: String      // Agent 可执行路径（可选，仅展示用）
-    var skillPath: String     // skills 目录绝对路径（核心）
+    var skillPath: String     // 核心 skills 目录绝对路径（也是 ~/.agent/skills 下的 symlink 目标）
+    var extraSkillPaths: [String] = []   // 其它 skill 目录（OpenClaw workspace / 内置 / 跨 Agent 共用 等）
     var enabled: Bool         // 是否在 SkillReader 中纳入管理
     var isCustom: Bool        // 是否用户自定义 Agent
-    var detected: Bool        // 运行时探测：skillPath 是否存在
+    var detected: Bool        // 运行时探测：任一路径存在即为 true（不持久化）
 
     init(id: String, name: String, vendor: String, iconName: String,
-         execPath: String = "", skillPath: String, enabled: Bool = false,
-         isCustom: Bool = false) {
+         execPath: String = "", skillPath: String, extraSkillPaths: [String] = [],
+         enabled: Bool = false, isCustom: Bool = false) {
         self.id = id
         self.name = name
         self.vendor = vendor
         self.iconName = iconName
         self.execPath = execPath
         self.skillPath = skillPath
+        self.extraSkillPaths = extraSkillPaths
         self.enabled = enabled
         self.isCustom = isCustom
-        self.detected = FileManager.default.fileExists(
-            atPath: (skillPath as NSString).expandingTildeInPath)
+        self.detected = AgentProfile.detect(paths: [skillPath] + extraSkillPaths)
+    }
+
+    private static func detect(paths: [String]) -> Bool {
+        let fm = FileManager.default
+        for raw in paths {
+            let path = (raw as NSString).expandingTildeInPath
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue { return true }
+        }
+        return false
     }
 
     // detected 不参与持久化：CodingKeys 不含它，解码后由 init(from:) 重新探测。
     enum CodingKeys: String, CodingKey {
-        case id, name, vendor, iconName, execPath, skillPath, enabled, isCustom
+        case id, name, vendor, iconName, execPath, skillPath, extraSkillPaths, enabled, isCustom
     }
 
     init(from decoder: Decoder) throws {
@@ -43,11 +56,27 @@ struct AgentProfile: Identifiable, Codable, Equatable {
         iconName = try c.decode(String.self, forKey: .iconName)
         execPath = try c.decodeIfPresent(String.self, forKey: .execPath) ?? ""
         skillPath = try c.decode(String.self, forKey: .skillPath)
+        extraSkillPaths = try c.decodeIfPresent([String].self, forKey: .extraSkillPaths) ?? []
         enabled = try c.decode(Bool.self, forKey: .enabled)
         isCustom = try c.decodeIfPresent(Bool.self, forKey: .isCustom) ?? false
         // 解码后即时重新探测真实存在性
-        detected = FileManager.default.fileExists(
-            atPath: (skillPath as NSString).expandingTildeInPath)
+        detected = AgentProfile.detect(paths: [skillPath] + extraSkillPaths)
+    }
+
+    /// 全部 skill 目录（核心 + 额外），已展开 ~；重复路径去重
+    var allSkillPaths: [String] {
+        let fm = FileManager.default
+        var seen = Set<String>()
+        var result: [String] = []
+        for raw in [skillPath] + extraSkillPaths {
+            let expanded = (raw as NSString).expandingTildeInPath
+            let real = (expanded as NSString).standardizingPath
+            if seen.insert(real).inserted {
+                result.append(expanded)
+            }
+        }
+        // 过滤掉不存在的，避免 UI 噪音
+        return result.filter { fm.fileExists(atPath: $0) }
     }
 }
 
@@ -81,8 +110,11 @@ final class AgentRegistry: ObservableObject {
                          skillPath: p(".workbuddy/skills")),
             AgentProfile(id: "codebuddy", name: "CodeBuddy", vendor: "腾讯", iconName: "hammer",
                          skillPath: p(".codebuddy/skills")),
+            // OpenClaw 真实 skill 在 workspace/skills，~/.openclaw/skills 多数为空
+            // 也共用 ~/.agents/skills（与 Claude Code 共享）
             AgentProfile(id: "openclaw", name: "OpenClaw", vendor: "开源", iconName: "shippingbox",
-                         skillPath: p(".openclaw/skills")),
+                         skillPath: p(".openclaw/skills"),
+                         extraSkillPaths: [p(".openclaw/workspace/skills"), p(".agents/skills")]),
             AgentProfile(id: "claude-code", name: "Claude Code", vendor: "Anthropic", iconName: "brain",
                          skillPath: p(".claude/skills")),
             AgentProfile(id: "codex", name: "Codex CLI", vendor: "OpenAI", iconName: "terminal",
@@ -177,28 +209,34 @@ final class AgentRegistry: ObservableObject {
 // MARK: - 运行时辅助
 
 extension AgentProfile {
-    /// 探测 skillPath 下 skill 数量（仅统计包含 SKILL.md 的目录，过滤隐藏文件）
-    /// 供 UI 展示「N 个技能」标签使用；返回 -1 表示路径不存在。
+    /// 探测 skill 数量：遍历所有 skillPath + extraSkillPaths，去重计数含 SKILL.md 的目录。
+    /// 返回 -1 表示所有路径都不存在。
     var skillCount: Int {
-        let path = (skillPath as NSString).expandingTildeInPath
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
-            return -1
-        }
-        let entries = (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
+        let paths = [skillPath] + extraSkillPaths
+        var seen = Set<String>()
         var count = 0
-        for name in entries where !name.hasPrefix(".") {
-            var subIsDir: ObjCBool = false
-            let sub = (path as NSString).appendingPathComponent(name)
-            if FileManager.default.fileExists(atPath: sub, isDirectory: &subIsDir),
-               subIsDir.boolValue {
-                // 含 SKILL.md 才算真正的 skill 包
-                let skillMD = (sub as NSString).appendingPathComponent("SKILL.md")
-                if FileManager.default.fileExists(atPath: skillMD) {
-                    count += 1
+        var anyExists = false
+        for raw in paths {
+            let path = (raw as NSString).expandingTildeInPath
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
+                continue
+            }
+            anyExists = true
+            let entries = (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
+            for name in entries where !name.hasPrefix(".") {
+                var subIsDir: ObjCBool = false
+                let sub = (path as NSString).appendingPathComponent(name)
+                if FileManager.default.fileExists(atPath: sub, isDirectory: &subIsDir),
+                   subIsDir.boolValue {
+                    let skillMD = (sub as NSString).appendingPathComponent("SKILL.md")
+                    if FileManager.default.fileExists(atPath: skillMD),
+                       seen.insert(name).inserted {
+                        count += 1
+                    }
                 }
             }
         }
-        return count
+        return anyExists ? count : -1
     }
 }
