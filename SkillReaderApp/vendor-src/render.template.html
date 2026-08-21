@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skill Reader</title>
+<link rel="stylesheet" href="github.min.css">
+<style>
+:root {
+  --accent: #d43f3a;
+  --accent-soft: #fdf1f0;
+  --accent-border: #f3c4c1;
+  --bg: #ffffff;
+  --bg-sub: #f7f8fa;
+  --bg-hover: #f2f3f5;
+  --border: #e4e6eb;
+  --text: #24292f;
+  --text-2: #57606a;
+  --text-3: #8c959f;
+  --code-bg: #f6f8fa;
+  --link: #0969da;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue",
+               "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 15px; color: var(--text); background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+#content { padding: 28px 24px 80px; overflow-y: auto; height: 100vh; }
+
+/* ---------- 欢迎页 ---------- */
+.welcome { height: 100%; display: flex; align-items: center; justify-content: center; }
+.welcome-card { text-align: center; max-width: 480px; padding: 40px; }
+.welcome-logo { font-size: 46px; }
+.welcome-card h2 { font-size: 22px; margin: 12px 0 8px; }
+.welcome-card p { font-size: 14px; color: var(--text-2); line-height: 1.9; }
+.welcome-hint { color: var(--text-3) !important; font-size: 13px !important; }
+
+/* ---------- Markdown 正文 ---------- */
+.md-body { max-width: 860px; margin: 0 auto; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 {
+  color: #1f2328; font-weight: 700; line-height: 1.4; margin: 1.4em 0 .6em;
+  scroll-margin-top: 60px;
+}
+.md-body h1 { font-size: 26px; border-bottom: 1px solid var(--border); padding-bottom: .35em; }
+.md-body h2 { font-size: 21px; border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+.md-body h3 { font-size: 17px; }
+.md-body h4 { font-size: 15px; }
+.md-body p { margin: .7em 0; line-height: 1.85; }
+.md-body a { color: var(--link); text-decoration: none; cursor: pointer; }
+.md-body a:hover { text-decoration: underline; }
+.md-body ul, .md-body ol { margin: .7em 0; padding-left: 1.8em; line-height: 1.85; }
+.md-body li { margin: .25em 0; }
+.md-body li > ul, .md-body li > ol { margin: .2em 0; }
+.md-body blockquote {
+  margin: .9em 0; padding: .2em 1em; color: var(--text-2);
+  border-left: 4px solid #d0d7de; background: var(--bg-sub);
+  border-radius: 0 6px 6px 0;
+}
+.md-body blockquote p { margin: .4em 0; }
+.md-body code:not(pre code) {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .88em; background: rgba(175,184,193,.2);
+  padding: .15em .35em; border-radius: 4px; color: #cf222e;
+}
+.md-body pre {
+  background: var(--code-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 14px;
+  overflow-x: auto; line-height: 1.6; margin: .9em 0;
+}
+.md-body pre code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px; background: transparent; padding: 0;
+}
+.md-body table { border-collapse: collapse; margin: .9em 0; width: 100%; font-size: 14px; }
+.md-body th, .md-body td { border: 1px solid #d0d7de; padding: 6px 12px; }
+.md-body th { background: var(--bg-sub); font-weight: 600; }
+.md-body tr:nth-child(2n) td { background: #fafbfc; }
+.md-body hr { border: none; border-top: 1px solid var(--border); margin: 1.6em 0; }
+.md-body img { max-width: 100%; border-radius: 6px; }
+.md-body del { color: var(--text-3); }
+.md-body details { margin: .9em 0; }
+.md-body summary { cursor: pointer; font-weight: 600; }
+
+/* ---------- Frontmatter 卡片 ---------- */
+.fm-card {
+  background: var(--bg-sub); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 20px; margin-bottom: 22px;
+}
+.fm-title { font-size: 22px; font-weight: 700; color: #1f2328; line-height: 1.4; }
+.fm-desc { font-size: 14px; color: var(--text-2); margin-top: 6px; line-height: 1.8; }
+.fm-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.fm-chip {
+  font-size: 12px; padding: 2px 9px; border-radius: 12px;
+  background: var(--bg); border: 1px solid var(--border); color: var(--text-2);
+}
+.fm-chip b { color: var(--text); font-weight: 600; margin-right: 4px; }
+
+/* ---------- 代码查看器 ---------- */
+.code-view { max-width: 960px; margin: 0 auto; }
+.code-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border: 1px solid var(--border); border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--bg-sub);
+}
+.code-header .fname { font-weight: 600; font-size: 13px; }
+.code-header .flang {
+  font-size: 11px; padding: 1px 8px; border-radius: 10px;
+  background: var(--accent-soft); color: var(--accent);
+  border: 1px solid var(--accent-border);
+}
+.code-header .fsize { font-size: 12px; color: var(--text-3); }
+.code-header .spacer { flex: 1; }
+.text-btn {
+  height: 24px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg);
+  font-size: 12px; color: var(--text-2); cursor: pointer;
+  font-family: inherit; transition: all .15s;
+}
+.text-btn:hover { background: var(--bg-hover); color: var(--text); }
+.code-body {
+  display: flex; border: 1px solid var(--border);
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: var(--code-bg); max-height: calc(100vh - 200px);
+  overflow: auto;
+}
+.code-gutter {
+  flex-shrink: 0; padding: 12px 8px; text-align: right;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px; line-height: 1.6; color: var(--text-3);
+  background: #f0f2f5; border-right: 1px solid var(--border);
+  user-select: none; position: sticky; left: 0;
+}
+.code-gutter span { display: block; }
+.code-body pre {
+  flex: 1; margin: 0; padding: 12px 14px; overflow: visible;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px; line-height: 1.6; min-width: max-content;
+}
+.code-body pre code { background: transparent; font-family: inherit; }
+
+/* ---------- 图片 / 其他 ---------- */
+.img-view { max-width: 960px; margin: 0 auto; text-align: center; }
+.img-view img { max-width: 100%; max-height: calc(100vh - 200px); border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.file-meta { font-size: 13px; color: var(--text-2); text-align: center; margin-bottom: 14px; }
+.pdf-view { max-width: 100%; margin: 0 auto; }
+.pdf-view iframe { width: 100%; height: calc(100vh - 200px); border: 1px solid var(--border); border-radius: var(--radius); }
+.plain-view pre {
+  background: var(--code-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px; line-height: 1.7; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
+.unsupported { text-align: center; padding: 60px 20px; color: var(--text-2); font-size: 14px; }
+.unsupported .big { font-size: 40px; margin-bottom: 10px; }
+.source-view {
+  background: var(--code-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px 18px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px; line-height: 1.7; overflow: auto;
+  white-space: pre-wrap; word-break: break-word; color: var(--text);
+}
+.loading { padding: 60px; text-align: center; color: var(--text-3); font-size: 14px; }
+
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #d0d7de; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #b6bec7; }
+::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<div id="content"><div class="loading">加载中…</div></div>
+
+<script src="marked.min.js"></script>
+<script src="purify.min.js"></script>
+<script src="highlight.min.js"></script>
+<script>
+"use strict";
+
+let currentBaseDir = "";   // 当前文件所在目录 file:// URL, 用于解析相对图片
+
+const esc = (s) => String(s == null ? "" : s)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+function notify(msg) {
+  try { window.webkit.messageHandlers.skillReader.postMessage(msg); } catch (e) {}
+}
+
+// hljs 输出清洗：把字面 `\n`（两字符）替换为真换行，并防止意外的 </code>/</pre>
+// 闭合导致内容溢出到代码块外。
+function sanitizeHljs(html) {
+  if (!html) return html;
+  return html
+    .replace(/\\n/g, "\n")
+    .replace(/<\/code>/gi, "&lt;/code&gt;")
+    .replace(/<\/pre>/gi, "&lt;/pre&gt;");
+}
+
+function parseFrontmatter(src) {
+  const m = src.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!m) return { fm: null, body: src };
+  const fm = {};
+  let key = null;
+  for (const line of m[1].split("\n")) {
+    const kv = line.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
+    if (kv) { key = kv[1]; fm[key] = parseScalar(kv[2]); }
+    else if (key && /^\s+-\s+/.test(line)) {
+      const item = parseScalar(line.replace(/^\s+-\s+/, ""));
+      if (!Array.isArray(fm[key])) fm[key] = fm[key] == null ? [] : [fm[key]];
+      fm[key].push(item);
+    }
+  }
+  return { fm, body: src.slice(m[0].length) };
+}
+
+function parseScalar(v) {
+  v = v.trim();
+  if (!v) return "";
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) return v.slice(1, -1);
+  if (v === "true") return true;
+  if (v === "false") return false;
+  if (/^-?\d+(\.\d+)?$/.test(v)) return /\./.test(v) ? parseFloat(v) : parseInt(v, 10);
+  return v;
+}
+
+// 将任意本地路径（file:// 或相对路径）转成 srfile:// 协议，由 Swift 侧读取
+function toSrfile(src) {
+  if (/^srfile:/i.test(src)) return src;
+  let abs;
+  if (/^file:/i.test(src)) {
+    abs = src;
+  } else if (/^(https?:|data:|#)/i.test(src)) {
+    return src; // 外链 / data / 锚点保持原样
+  } else {
+    try { abs = new URL(src, currentBaseDir).href; }
+    catch (e) { return src; }
+  }
+  return abs.replace(/^file:\/\//, "srfile://");
+}
+
+// 将 markdown 中的图片 src 统一转为 srfile://
+function fixRelativeMedia(html) {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  div.querySelectorAll("img").forEach(img => {
+    img.src = toSrfile(img.getAttribute("src"));
+  });
+  return div.innerHTML;
+}
+
+// 收集标题生成 TOC
+function collectToc() {
+  const heads = Array.from(document.querySelectorAll("#content .md-content h1, #content .md-content h2, #content .md-content h3"));
+  if (!heads.length) { notify({ action: "toc", items: [] }); return; }
+  const items = heads.map((h, i) => {
+    if (!h.id) h.id = "sec-" + i;
+    return { id: h.id, text: h.textContent.trim(), level: Number(h.tagName[1]) };
+  });
+  notify({ action: "toc", items: items });
+}
+
+// 滚动高亮当前章节
+let observer = null;
+function observeHeadings() {
+  if (observer) observer.disconnect();
+  const heads = Array.from(document.querySelectorAll("#content .md-content h1, #content .md-content h2, #content .md-content h3"));
+  if (!heads.length) return;
+  observer = new IntersectionObserver(entries => {
+    entries.forEach(en => {
+      if (!en.isIntersecting) return;
+      notify({ action: "heading", id: en.target.id, text: en.target.textContent.trim() });
+    });
+  }, { root: document.getElementById("content"), rootMargin: "-80px 0px -70% 0px" });
+  heads.forEach(h => observer.observe(h));
+}
+
+function copyText(text) {
+  notify({ action: "copy", text: text });
+}
+
+function renderMarkdown(p) {
+  const { fm, body } = parseFrontmatter(p.content);
+  const title = (fm && (fm.name || fm.title)) || p.skillName || p.name;
+  const desc = fm && (fm.description || fm.summary);
+  const ignored = new Set(["name", "title", "description", "summary"]);
+  const chips = fm ? Object.entries(fm)
+    .filter(([k]) => !ignored.has(k))
+    .map(([k, v]) => {
+      const val = Array.isArray(v) ? v.join("、") : String(v);
+      return `<span class="fm-chip"><b>${esc(k)}</b>${esc(val)}</span>`;
+    }).join("") : "";
+
+  let html = marked.parse(body, { gfm: true, breaks: false });
+  html = fixRelativeMedia(html);
+  const clean = DOMPurify.sanitize(html);
+
+  document.getElementById("content").innerHTML = `
+    <article class="md-body">
+      ${fm ? `<div class="fm-card">
+        <div class="fm-title">${esc(title)}</div>
+        ${desc ? `<div class="fm-desc">${esc(String(desc))}</div>` : ""}
+        ${chips ? `<div class="fm-chips">${chips}</div>` : ""}
+      </div>` : `<h1>${esc(title)}</h1>`}
+      <div class="md-content">${clean}</div>
+    </article>`;
+
+  // 代码高亮（手动调用 hljs.highlight 后清洗，避免 </code> 意外截断 / 字面 \n）
+  document.querySelectorAll("#content .md-body pre code").forEach(el => {
+    if (el.dataset.hl !== "1") {
+      const lang = (el.className.match(/language-(\S+)/) || [null, "plaintext"])[1];
+      try {
+        const value = hljs.highlight(el.textContent, { language: lang, ignoreIllegals: true }).value;
+        el.innerHTML = sanitizeHljs(value);
+      } catch (e) { /* 保留原内容 */ }
+      el.dataset.hl = "1";
+    }
+  });
+  // 外链点击 -> 通知 Swift 用系统浏览器打开
+  document.querySelectorAll("#content .md-body a").forEach(a => {
+    if (!a.dataset.bound) {
+      a.dataset.bound = "1";
+      a.addEventListener("click", ev => {
+        const href = a.getAttribute("href") || "";
+        if (/^https?:/i.test(href)) {
+          ev.preventDefault();
+          notify({ action: "openURL", url: href });
+        }
+      });
+    }
+  });
+  collectToc();
+  observeHeadings();
+}
+
+function renderCode(p) {
+  const lines = p.content.split("\n");
+  const lang = p.lang || "plaintext";
+  let html = p.content;
+  try {
+    html = hljs.highlight(p.content, { language: lang, ignoreIllegals: true }).value;
+  } catch (e) {}
+  html = sanitizeHljs(html);
+  const gutter = lines.map((_, i) => `<span>${i + 1}</span>`).join("");
+  // 复制按钮的 onclick 在 HTML 属性里，需同时满足 JS 字符串 + HTML 属性转义
+  const copyPayload = JSON.stringify(p.content)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+  document.getElementById("content").innerHTML = `
+    <div class="code-view">
+      <div class="code-header">
+        <span class="fname">${esc(p.name)}</span>
+        <span class="flang">${esc(lang)}</span>
+        <span class="fsize">${esc(p.size)} · ${lines.length} 行</span>
+        <span class="spacer"></span>
+        <button class="text-btn" onclick="copyText(${copyPayload})">复制代码</button>
+      </div>
+      <div class="code-body">
+        <div class="code-gutter">${gutter}</div>
+        <pre><code class="language-${esc(lang)}">${html}</code></pre>
+      </div>
+    </div>`;
+  notify({ action: "toc", items: [] });
+}
+
+function renderImage(p) {
+  const url = toSrfile(p.path);
+  document.getElementById("content").innerHTML = `
+    <div class="img-view">
+      <div class="file-meta">${esc(p.name)} · ${esc(p.size)}</div>
+      <img src="${esc(url)}" alt="${esc(p.name)}">
+    </div>`;
+  notify({ action: "toc", items: [] });
+}
+
+function renderPdf(p) {
+  const url = toSrfile(p.path);
+  document.getElementById("content").innerHTML = `
+    <div class="pdf-view">
+      <div class="file-meta">${esc(p.name)} · ${esc(p.size)}</div>
+      <iframe src="${esc(url)}"></iframe>
+    </div>`;
+  notify({ action: "toc", items: [] });
+}
+
+function renderPlain(p) {
+  document.getElementById("content").innerHTML = `
+    <div class="plain-view">
+      <div class="file-meta" style="text-align:left;margin-bottom:8px">${esc(p.name)} · ${esc(p.size)}</div>
+      <pre>${esc(p.content)}</pre>
+    </div>`;
+  notify({ action: "toc", items: [] });
+}
+
+function renderUnsupported(p) {
+  const msg = p.tooLarge ? "文件过大（超过 2MB），无法直接预览" : "暂不支持预览该文件类型";
+  document.getElementById("content").innerHTML = `
+    <div class="unsupported">
+      <div class="big">📄</div>
+      <div>${esc(p.name)}</div>
+      <div style="margin-top:6px;color:var(--text-3)">${esc(msg)}</div>
+      <div style="margin-top:14px"><button class="text-btn" onclick="notify({action:'openRaw'})">在 Finder 中显示</button></div>
+    </div>`;
+  notify({ action: "toc", items: [] });
+}
+
+function renderSource(p) {
+  document.getElementById("content").innerHTML = `
+    <pre class="source-view">${esc(p.content)}</pre>`;
+  notify({ action: "toc", items: [] });
+}
+
+function renderWelcome() {
+  document.getElementById("content").innerHTML = `
+    <div class="welcome">
+      <div class="welcome-card">
+        <div class="welcome-logo">📚</div>
+        <h2>Skill Reader</h2>
+        <p>浏览本机技能包：<b>SKILL.md</b> 渲染阅读、<b>references</b> 子文档、<b>scripts</b> 里 Python 等脚本高亮查看。</p>
+        <p class="welcome-hint">从左侧选择一个技能开始阅读</p>
+      </div>
+    </div>`;
+  notify({ action: "toc", items: [] });
+}
+
+// Swift 调用入口
+window.renderSkill = function(p) {
+  currentBaseDir = p.baseDir || "";
+  if (p.kind === "welcome") { renderWelcome(); return; }
+  if (p.sourceMode && (p.kind === "md")) { renderSource(p); return; }
+  switch (p.kind) {
+    case "md": renderMarkdown(p); break;
+    case "code": case "yaml": case "json": case "toml": renderCode(p); break;
+    case "img": renderImage(p); break;
+    case "pdf": renderPdf(p); break;
+    case "text": renderPlain(p); break;
+    default: renderUnsupported(p); break;
+  }
+};
+
+// Swift 请求滚动到指定标题
+window.scrollToHeading = function(id) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+};
+
+// 初始加载完成通知
+document.addEventListener("DOMContentLoaded", () => {
+  notify({ action: "ready" });
+});
+</script>
+</body>
+</html>
