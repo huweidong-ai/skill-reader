@@ -21,6 +21,10 @@ struct SkillReaderApp: App {
             if CommandLine.arguments.contains("--render-smoke") {
                 // smoke 模式：不创建 ContentView（避免与测试 WebView 冲突）
                 EmptyView().frame(width: 1, height: 1)
+            } else if state.needsSetup {
+                AgentSetupView()
+                    .environmentObject(state)
+                    .frame(minWidth: 780, minHeight: 560)
             } else {
                 ContentView()
                     .environmentObject(state)
@@ -63,7 +67,7 @@ struct SkillReaderApp: App {
                             state.switchRoot(id: root.id)
                         } label: {
                             HStack {
-                                Text(root.path).lineLimit(1)
+                                Text(root.name).lineLimit(1)
                                 if state.store.currentRootID == root.id {
                                     Spacer()
                                     Image(systemName: "checkmark")

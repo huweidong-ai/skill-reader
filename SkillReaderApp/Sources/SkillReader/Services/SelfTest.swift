@@ -62,6 +62,53 @@ enum SelfTest {
             check(store.safeJoin(root: "/tmp/root", rel: "sub/../../x") == nil, "join: deep traversal blocked")
         }
 
+        // ---- AgentProfile Codable（detected 不应持久化）----
+        do {
+            var p = AgentProfile(id: "x", name: "X Agent", vendor: "v", iconName: "star",
+                                 skillPath: "/tmp/__sr_nonexistent_skills__", enabled: true)
+            p.detected = true
+            let enc = try? JSONEncoder().encode(p)
+            let dec = enc.flatMap { try? JSONDecoder().decode(AgentProfile.self, from: $0) }
+            if let dec = dec {
+                check(dec.id == "x", "agentprofile: id roundtrip")
+                check(dec.name == "X Agent", "agentprofile: name roundtrip")
+                check(dec.enabled == true, "agentprofile: enabled roundtrip")
+                check(dec.detected == false, "agentprofile: detected NOT persisted (got \(dec.detected))")
+            } else {
+                check(false, "agentprofile: encode/decode failed")
+            }
+        }
+
+        // ---- AgentRegistry：符号链接（使用临时目录，不触碰 ~/.agent）----
+        do {
+            let base = NSTemporaryDirectory() + "skillreader-agent-\(UUID().uuidString)"
+            let target = base + "/real/skills"
+            let link = base + "/mount/myagent"
+            try? FileManager.default.createDirectory(atPath: (link as NSString).deletingLastPathComponent,
+                                                     withIntermediateDirectories: true)
+            try? AgentRegistry.linkAgent(link: link, target: target)
+            var isDir: ObjCBool = false
+            let ok = FileManager.default.fileExists(atPath: link, isDirectory: &isDir)
+            check(ok, "agent: symlink created")
+            check(isDir.boolValue, "agent: symlink resolves to dir")
+
+            // 目标不存在时应自动创建
+            let target2 = base + "/real2/skills"
+            let link2 = base + "/mount/agent2"
+            try? FileManager.default.createDirectory(atPath: (link2 as NSString).deletingLastPathComponent,
+                                                     withIntermediateDirectories: true)
+            try? AgentRegistry.linkAgent(link: link2, target: target2)
+            check(FileManager.default.fileExists(atPath: target2), "agent: missing target auto-created")
+
+            // 重建应覆盖旧的（指向不同目标）
+            let target3 = base + "/real3/skills"
+            try? AgentRegistry.linkAgent(link: link2, target: target3)
+            let resolved = try? FileManager.default.destinationOfSymbolicLink(atPath: link2)
+            check(resolved == target3, "agent: relink points to new target (got \(resolved ?? "nil"))")
+
+            try? FileManager.default.removeItem(atPath: base)
+        }
+
         // ---- 临时目录扫描 + 搜索 + 树 ----
         do {
             let tmp = NSTemporaryDirectory() + "skillreader-selftest-\(UUID().uuidString)"

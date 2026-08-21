@@ -42,51 +42,59 @@ final class SkillStore: ObservableObject {
         var roots: [RootInfo] = []
         var seen = Set<String>()
 
-        // 1. 用户级 skills
+        // 0. ~/.agent 集中管理中心（symlink 挂载）：每个启用的 Agent 一个独立 root
+        //    侧栏顶部的「技能库切换」菜单天然变成「Agent 切换」。
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let userSkills = (home as NSString).appendingPathComponent(".workbuddy/skills")
-        addRoot(&roots, &seen, userSkills)
-
-        // 2. 工作区 .workbuddy/skills（server.py 同级 .workbuddy/skills）
-        let bundle = Bundle.main.bundlePath
-        var wsCandidates: [String] = []
-        // App 打包后 bundle 在 .app/Contents, 工作区目录取不到——用可执行文件位置向上找
-        let exe = Bundle.main.executablePath ?? bundle
-        let exeDir = (exe as NSString).deletingLastPathComponent
-        // 开发模式: Sources/SkillReader/.build/... -> 无法定位工作区, 交由 roots.json / 默认
-        wsCandidates.append((exeDir as NSString).appendingPathComponent(".workbuddy/skills"))
-        wsCandidates.append((bundle as NSString).appendingPathComponent(".workbuddy/skills"))
-        for ws in wsCandidates where FileManager.default.fileExists(atPath: ws) {
-            addRoot(&roots, &seen, ws)
-            break
+        let agentMount = (home as NSString).appendingPathComponent(".agent/skills")
+        let labelMap = AgentRegistry.shared.labelMap()
+        if let entries = try? FileManager.default.contentsOfDirectory(atPath: agentMount) {
+            for name in entries.sorted() {
+                let full = (agentMount as NSString).appendingPathComponent(name)
+                addRoot(&roots, &seen, full, label: labelMap[name], idPrefix: "a")
+            }
         }
 
-        // 3. roots.json（与可执行文件同目录, 开发模式退回 bundle 目录）
-        var rootsJsonPaths: [String] = []
-        if let res = Bundle.main.resourceURL?.appendingPathComponent("roots.json").path {
-            rootsJsonPaths.append(res)
-        }
-        rootsJsonPaths.append((exeDir as NSString).appendingPathComponent("roots.json"))
-        for p in rootsJsonPaths where FileManager.default.fileExists(atPath: p) {
-            if let lines = try? String(contentsOfFile: p, encoding: .utf8) {
-                for line in lines.split(separator: "\n") {
-                    let s = line.trimmingCharacters(in: .whitespaces)
-                    if !s.isEmpty && !s.hasPrefix("#") {
-                        addRoot(&roots, &seen, s)
+        // 1. 兜底：尚未配置 ~/.agent 时，沿用原逻辑（保证首次也有数据可读）
+        if roots.isEmpty {
+            // 1a. 用户级 skills
+            let userSkills = (home as NSString).appendingPathComponent(".workbuddy/skills")
+            addRoot(&roots, &seen, userSkills)
+
+            // 1b. 工作区 .workbuddy/skills（server.py 同级 .workbuddy/skills）
+            let bundle = Bundle.main.bundlePath
+            let exe = Bundle.main.executablePath ?? bundle
+            let exeDir = (exe as NSString).deletingLastPathComponent
+            let wsCandidates = [
+                (exeDir as NSString).appendingPathComponent(".workbuddy/skills"),
+                (bundle as NSString).appendingPathComponent(".workbuddy/skills"),
+            ]
+            for ws in wsCandidates where FileManager.default.fileExists(atPath: ws) {
+                addRoot(&roots, &seen, ws)
+                break
+            }
+
+            // 1c. roots.json（与可执行文件同目录, 开发模式退回 bundle 目录）
+            var rootsJsonPaths: [String] = []
+            if let res = Bundle.main.resourceURL?.appendingPathComponent("roots.json").path {
+                rootsJsonPaths.append(res)
+            }
+            rootsJsonPaths.append((exeDir as NSString).appendingPathComponent("roots.json"))
+            for p in rootsJsonPaths where FileManager.default.fileExists(atPath: p) {
+                if let lines = try? String(contentsOfFile: p, encoding: .utf8) {
+                    for line in lines.split(separator: "\n") {
+                        let s = line.trimmingCharacters(in: .whitespaces)
+                        if !s.isEmpty && !s.hasPrefix("#") {
+                            addRoot(&roots, &seen, s)
+                        }
                     }
                 }
+                break
             }
-            break
         }
 
-        // 4. 命令行 --root 追加
+        // 1d. 命令行 --root 追加
         for r in extra where !r.isEmpty {
             addRoot(&roots, &seen, r)
-        }
-
-        // 保底: 都没有时指向用户级（若存在）
-        if roots.isEmpty, FileManager.default.fileExists(atPath: userSkills) {
-            addRoot(&roots, &seen, userSkills)
         }
 
         self.roots = roots
@@ -99,15 +107,16 @@ final class SkillStore: ObservableObject {
         }
     }
 
-    private func addRoot(_ roots: inout [RootInfo], _ seen: inout Set<String>, _ path: String) {
+    private func addRoot(_ roots: inout [RootInfo], _ seen: inout Set<String>, _ path: String,
+                         label: String? = nil, idPrefix: String = "r") {
         let expanded = (path as NSString).expandingTildeInPath
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: expanded, isDirectory: &isDir), isDir.boolValue else { return }
         let real = (expanded as NSString).standardizingPath
         guard !seen.contains(real) else { return }
         seen.insert(real)
-        let id = "r\(roots.count)"
-        roots.append(RootInfo(id: id, path: real))
+        let id = "\(idPrefix)\(roots.count)"
+        roots.append(RootInfo(id: id, path: real, label: label))
         rootPathByID[id] = real
     }
 

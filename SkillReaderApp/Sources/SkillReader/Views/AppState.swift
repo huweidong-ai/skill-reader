@@ -53,9 +53,24 @@ final class AppState: ObservableObject {
     @Published var toastIsError = false
     private var toastTask: Task<Void, Never>?
 
+    // ---- 首次 Agent 配置 ----
+    @Published var needsSetup: Bool = false
+
     // MARK: - 初始化
 
     init() {
+        // 是否需要在进入阅读器前先做 Agent 配置（无配置 或 没有任何 Agent 被纳入管理）
+        needsSetup = AgentRegistry.shared.needsSetup
+        store.loadRoots()
+        reloadSkills()
+    }
+
+    // MARK: - 首次 Agent 配置
+
+    /// 完成（或稍后）配置：保存 Agent 列表、重建 ~/.agent 集中管理、切换进阅读器。
+    func finishSetup(_ list: [AgentProfile]) {
+        AgentRegistry.shared.save(list)
+        needsSetup = false
         store.loadRoots()
         reloadSkills()
     }

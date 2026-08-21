@@ -109,7 +109,7 @@ struct SidebarView: View {
                             state.switchRoot(id: root.id)
                         } label: {
                             HStack {
-                                Text(root.path)
+                                Text(root.name)
                                     .lineLimit(1)
                                 if state.store.currentRootID == root.id {
                                     Spacer()

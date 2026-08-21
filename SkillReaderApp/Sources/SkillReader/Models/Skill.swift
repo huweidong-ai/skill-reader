@@ -5,7 +5,12 @@ import Foundation
 struct RootInfo: Identifiable, Equatable {
     let id: String
     let path: String
-    var name: String { (path as NSString).lastPathComponent.isEmpty ? path : (path as NSString).lastPathComponent }
+    let label: String?        // 来自 AgentRegistry 的显示名（如 "OpenClaw"）
+    var name: String {
+        if let label, !label.isEmpty { return label }
+        let last = (path as NSString).lastPathComponent
+        return last.isEmpty ? path : last
+    }
 }
 
 // MARK: - 技能包
