@@ -130,15 +130,15 @@ final class AgentRegistry: ObservableObject {
                          skillPath: p(".gemini/skills")),
             // ── 国产 ──
             AgentProfile(id: "workbuddy", name: "WorkBuddy", vendor: "腾讯", iconName: "bubble.left.and.text.bubble.right",
-                         skillPath: p(".workbuddy/skills")),
+                         logo: "workbuddy", skillPath: p(".workbuddy/skills")),
             AgentProfile(id: "trae", name: "Trae", vendor: "字节", iconName: "globe",
-                         skillPath: p(".trae/skills")),
+                         logo: "trae", skillPath: p(".trae/skills")),
             AgentProfile(id: "qoderwork", name: "QoderWork", vendor: "阿里", iconName: "qrcode.viewfinder",
                          logo: "qoderwork", skillPath: p(".qoderwork/skills")),
             AgentProfile(id: "codebuddy", name: "CodeBuddy", vendor: "腾讯", iconName: "hammer",
-                         skillPath: p(".codebuddy/skills")),
+                         logo: "codebuddy", skillPath: p(".codebuddy/skills")),
             AgentProfile(id: "kimi-code", name: "Kimi Code", vendor: "月之暗面", iconName: "moon.stars",
-                         skillPath: p(".kimi/skills")),
+                         logo: "kimi", skillPath: p(".kimi/skills")),
         ]
     }
 
