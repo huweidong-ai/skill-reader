@@ -147,6 +147,37 @@ struct SidebarView: View {
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
+                .help("刷新技能列表")
+
+                Button {
+                    let panel = NSOpenPanel()
+                    panel.title = "选择技能库根目录"
+                    panel.canChooseFiles = false
+                    panel.canChooseDirectories = true
+                    panel.allowsMultipleSelection = false
+                    panel.prompt = "添加"
+                    if panel.runModal() == .OK, let url = panel.url {
+                        state.store.addRoot(path: url.path)
+                        state.switchRoot(id: state.store.currentRootID ?? "")
+                        state.flashToast("已添加技能库")
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("添加技能库目录")
+
+                Button {
+                    state.reopenSetup()
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("配置 Agent")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)

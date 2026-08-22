@@ -67,9 +67,24 @@ final class AppState: ObservableObject {
 
     // MARK: - 首次 Agent 配置
 
-    /// 完成（或稍后）配置：保存 Agent 列表、重建 ~/.agent 集中管理、切换进阅读器。
+    /// 完成配置：保存 Agent 列表、重建 ~/.agent 集中管理、切换进阅读器。
     func finishSetup(_ list: [AgentProfile]) {
         AgentRegistry.shared.save(list)
+        enterReader()
+    }
+
+    /// 稍后配置：跳过配置页直接进入阅读器，不保存、不重建 ~/.agent。
+    /// 下次启动时若仍无配置，会再次弹出配置页。
+    func skipSetup() {
+        enterReader()
+    }
+
+    /// 从阅读器回到配置页（重新管理 Agent）。
+    func reopenSetup() {
+        needsSetup = true
+    }
+
+    private func enterReader() {
         needsSetup = false
         store.loadRoots()
         reloadSkills()

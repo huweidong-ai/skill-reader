@@ -51,34 +51,6 @@ struct SkillReaderApp: App {
                 .keyboardShortcut(.escape, modifiers: [])
             }
 
-            CommandMenu("技能库") {
-                Button("刷新技能列表") {
-                    state.reloadSkills()
-                    state.flashToast("已刷新")
-                }
-                .keyboardShortcut("r", modifiers: .command)
-
-                Button("添加技能库目录…") {
-                    addRootViaPanel()
-                }
-
-                Menu("当前技能库") {
-                    ForEach(state.store.roots) { root in
-                        Button {
-                            state.switchRoot(id: root.id)
-                        } label: {
-                            HStack {
-                                Text(root.name).lineLimit(1)
-                                if state.store.currentRootID == root.id {
-                                    Spacer()
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             // 文档操作（飞书风格：编辑 + 分享）
             CommandGroup(replacing: .newItem) {
                 Button("在编辑器中打开") {
@@ -91,20 +63,6 @@ struct SkillReaderApp: App {
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
             }
-        }
-    }
-
-    private func addRootViaPanel() {
-        let panel = NSOpenPanel()
-        panel.title = "选择技能库根目录"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "添加"
-        if panel.runModal() == .OK, let url = panel.url {
-            state.store.addRoot(path: url.path)
-            state.switchRoot(id: state.store.currentRootID ?? "")
-            state.flashToast("已添加技能库")
         }
     }
 }

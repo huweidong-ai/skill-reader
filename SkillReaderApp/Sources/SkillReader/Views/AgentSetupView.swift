@@ -79,7 +79,7 @@ struct AgentSetupView: View {
             Spacer()
 
             Button("稍后配置") {
-                state.finishSetup(agents)
+                state.skipSetup()
             }
             .keyboardShortcut(.escape, modifiers: [])
             .buttonStyle(.bordered)
