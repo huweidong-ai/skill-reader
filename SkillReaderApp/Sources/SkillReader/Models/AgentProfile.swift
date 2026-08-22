@@ -10,7 +10,8 @@ struct AgentProfile: Identifiable, Codable, Equatable {
     var id: String            // 唯一 ID，也是 ~/.agent/skills 下的符号链接名
     var name: String          // 显示名
     var vendor: String        // 厂商 / 来源
-    var iconName: String      // SF Symbol
+    var iconName: String      // SF Symbol（无官方 logo 时兜底）
+    var logo: String?         // 官方 logo 资源名（Resources/logos/xxx.png），nil 用 iconName
     var execPath: String      // Agent 可执行路径（可选，仅展示用）
     var skillPath: String     // 核心 skills 目录绝对路径（也是 ~/.agent/skills 下的 symlink 目标）
     var extraSkillPaths: [String] = []   // 其它 skill 目录（OpenClaw workspace / 内置 / 跨 Agent 共用 等）
@@ -18,13 +19,14 @@ struct AgentProfile: Identifiable, Codable, Equatable {
     var isCustom: Bool        // 是否用户自定义 Agent
     var detected: Bool        // 运行时探测：任一路径存在即为 true（不持久化）
 
-    init(id: String, name: String, vendor: String, iconName: String,
+    init(id: String, name: String, vendor: String, iconName: String, logo: String? = nil,
          execPath: String = "", skillPath: String, extraSkillPaths: [String] = [],
          enabled: Bool = false, isCustom: Bool = false) {
         self.id = id
         self.name = name
         self.vendor = vendor
         self.iconName = iconName
+        self.logo = logo
         self.execPath = execPath
         self.skillPath = skillPath
         self.extraSkillPaths = extraSkillPaths
@@ -45,7 +47,7 @@ struct AgentProfile: Identifiable, Codable, Equatable {
 
     // detected 不参与持久化：CodingKeys 不含它，解码后由 init(from:) 重新探测。
     enum CodingKeys: String, CodingKey {
-        case id, name, vendor, iconName, execPath, skillPath, extraSkillPaths, enabled, isCustom
+        case id, name, vendor, iconName, logo, execPath, skillPath, extraSkillPaths, enabled, isCustom
     }
 
     init(from decoder: Decoder) throws {
@@ -54,6 +56,7 @@ struct AgentProfile: Identifiable, Codable, Equatable {
         name = try c.decode(String.self, forKey: .name)
         vendor = try c.decode(String.self, forKey: .vendor)
         iconName = try c.decode(String.self, forKey: .iconName)
+        logo = try c.decodeIfPresent(String.self, forKey: .logo) ?? nil
         execPath = try c.decodeIfPresent(String.self, forKey: .execPath) ?? ""
         skillPath = try c.decode(String.self, forKey: .skillPath)
         extraSkillPaths = try c.decodeIfPresent([String].self, forKey: .extraSkillPaths) ?? []
@@ -100,35 +103,40 @@ final class AgentRegistry: ObservableObject {
         loadOrSeed()
     }
 
-    // MARK: 内置候选（用户点名 + 国内常见 Agent）
+    // MARK: 内置候选（国际在前：Codex / Claude Code / OpenClaw / OpenCode / Hermes，
+    //       国产在后：WorkBuddy / Trae / Qoder / CodeBuddy / Kimi …）
+    // 官方 logo 放 Resources/logos/（来源：GitHub org avatar / 官网 favicon），
+    // 无 logo 的用 SF Symbol 兜底。
 
     static func candidates() -> [AgentProfile] {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let p = { (sub: String) -> String in (home as NSString).appendingPathComponent(sub) }
         return [
-            AgentProfile(id: "workbuddy", name: "WorkBuddy", vendor: "腾讯", iconName: "bubble.left.and.text.bubble.right",
-                         skillPath: p(".workbuddy/skills")),
-            AgentProfile(id: "codebuddy", name: "CodeBuddy", vendor: "腾讯", iconName: "hammer",
-                         skillPath: p(".codebuddy/skills")),
+            // ── 国际 ──
+            AgentProfile(id: "codex", name: "Codex CLI", vendor: "OpenAI", iconName: "terminal",
+                         logo: "codex", skillPath: p(".codex/skills")),
+            AgentProfile(id: "claude-code", name: "Claude Code", vendor: "Anthropic", iconName: "brain",
+                         logo: "claude-code", skillPath: p(".claude/skills")),
             // OpenClaw 真实 skill 在 workspace/skills，~/.openclaw/skills 多数为空
             // 也共用 ~/.agents/skills（与 Claude Code 共享）
             AgentProfile(id: "openclaw", name: "OpenClaw", vendor: "开源", iconName: "shippingbox",
-                         skillPath: p(".openclaw/skills"),
+                         logo: "openclaw", skillPath: p(".openclaw/skills"),
                          extraSkillPaths: [p(".openclaw/workspace/skills"), p(".agents/skills")]),
-            AgentProfile(id: "claude-code", name: "Claude Code", vendor: "Anthropic", iconName: "brain",
-                         skillPath: p(".claude/skills")),
-            AgentProfile(id: "codex", name: "Codex CLI", vendor: "OpenAI", iconName: "terminal",
-                         skillPath: p(".codex/skills")),
+            AgentProfile(id: "opencode", name: "OpenCode", vendor: "Anomaly", iconName: "curlybraces",
+                         logo: "opencode", skillPath: p(".config/opencode/skills")),
+            AgentProfile(id: "hermes", name: "Hermes Agent", vendor: "Nous Research", iconName: "wind",
+                         logo: "hermes", skillPath: p(".hermes/skills")),
             AgentProfile(id: "gemini-cli", name: "Gemini CLI", vendor: "Google", iconName: "sparkle",
                          skillPath: p(".gemini/skills")),
-            AgentProfile(id: "opencode", name: "OpenCode", vendor: "Anomaly", iconName: "curlybraces",
-                         skillPath: p(".config/opencode/skills")),
-            AgentProfile(id: "hermes", name: "Hermes Agent", vendor: "Nous Research", iconName: "wind",
-                         skillPath: p(".hermes/skills")),
-            AgentProfile(id: "qoderwork", name: "QoderWork", vendor: "阿里", iconName: "qrcode.viewfinder",
-                         skillPath: p(".qoderwork/skills")),
+            // ── 国产 ──
+            AgentProfile(id: "workbuddy", name: "WorkBuddy", vendor: "腾讯", iconName: "bubble.left.and.text.bubble.right",
+                         skillPath: p(".workbuddy/skills")),
             AgentProfile(id: "trae", name: "Trae", vendor: "字节", iconName: "globe",
                          skillPath: p(".trae/skills")),
+            AgentProfile(id: "qoderwork", name: "QoderWork", vendor: "阿里", iconName: "qrcode.viewfinder",
+                         logo: "qoderwork", skillPath: p(".qoderwork/skills")),
+            AgentProfile(id: "codebuddy", name: "CodeBuddy", vendor: "腾讯", iconName: "hammer",
+                         skillPath: p(".codebuddy/skills")),
             AgentProfile(id: "kimi-code", name: "Kimi Code", vendor: "月之暗面", iconName: "moon.stars",
                          skillPath: p(".kimi/skills")),
         ]

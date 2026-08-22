@@ -61,6 +61,11 @@ cp "$BIN" "$TARGET/Contents/MacOS/$NAME"
 chmod +x "$TARGET/Contents/MacOS/$NAME"
 # 拷贝资源 bundle（render.html）
 cp -R "$RES_BUNDLE" "$TARGET/Contents/Resources/"
+# 拷贝 Agent 官方 logo
+if [ -d "$PROJECT_DIR/Sources/SkillReader/Resources/logos" ]; then
+    cp -R "$PROJECT_DIR/Sources/SkillReader/Resources/logos" "$TARGET/Contents/Resources/"
+    echo "  ✓ logos: $(ls "$PROJECT_DIR/Sources/SkillReader/Resources/logos" | wc -l | tr -d ' ') 个"
+fi
 if [ -f "$ICON_DIR/$NAME.icns" ]; then
     cp "$ICON_DIR/$NAME.icns" "$TARGET/Contents/Resources/$NAME.icns"
 fi

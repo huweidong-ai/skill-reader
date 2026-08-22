@@ -253,10 +253,7 @@ struct AgentCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: agent.iconName)
-                    .font(.system(size: 20))
-                    .foregroundStyle(agent.enabled ? Color.accentColor : Color.secondary)
-                    .frame(width: 28)
+                AgentIcon(agent: agent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(agent.name).font(.system(size: 14, weight: .semibold))
                     Text(agent.vendor).font(.system(size: 11)).foregroundStyle(.tertiary)
@@ -266,6 +263,7 @@ struct AgentCard: View {
                     .toggleStyle(.switch)
                     .labelsHidden()
                     .controlSize(.small)
+                    .help("开启后，该 Agent 的 skills 目录会挂载到 ~/.agent/skills，统一纳入 SkillReader 管理")
             }
 
             // 状态行：探测状态 + skill 数量
@@ -349,5 +347,53 @@ struct AgentCard: View {
                         .stroke(agent.enabled ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
                 )
         )
+    }
+}
+
+// MARK: - Agent 图标（优先官方 logo，兜底 SF Symbol）
+
+struct AgentIcon: View {
+    let agent: AgentProfile
+
+    var body: some View {
+        Group {
+            if let logo = agent.logo,
+               let img = AgentLogo.image(named: logo) {
+                Image(nsImage: img)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 28, height: 28)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            } else {
+                Image(systemName: agent.iconName)
+                    .font(.system(size: 20))
+                    .foregroundStyle(agent.enabled ? Color.accentColor : Color.secondary)
+                    .frame(width: 28)
+            }
+        }
+    }
+}
+
+/// 从 app 资源加载 Agent 官方 logo（Resources/logos/ 下）
+enum AgentLogo {
+    static func image(named name: String) -> NSImage? {
+        let fm = FileManager.default
+        // 1. .app 打包: Contents/Resources/logos/
+        if let res = Bundle.main.resourceURL {
+            let cand = res.appendingPathComponent("logos").appendingPathComponent("\(name).png")
+            if fm.fileExists(atPath: cand.path), let img = NSImage(contentsOf: cand) {
+                return img
+            }
+        }
+        // 2. 裸可执行调试: 可执行文件同级 ../Sources/SkillReader/Resources/logos/
+        if let exe = Bundle.main.executableURL {
+            var dir = exe.deletingLastPathComponent()
+            for _ in 0..<4 { dir = dir.deletingLastPathComponent() } // 上溯到项目根
+            let cand = dir.appendingPathComponent("Sources/SkillReader/Resources/logos").appendingPathComponent("\(name).png")
+            if fm.fileExists(atPath: cand.path), let img = NSImage(contentsOf: cand) {
+                return img
+            }
+        }
+        return nil
     }
 }
