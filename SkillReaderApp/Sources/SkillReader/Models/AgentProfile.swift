@@ -103,8 +103,8 @@ final class AgentRegistry: ObservableObject {
         loadOrSeed()
     }
 
-    // MARK: 内置候选（国际在前：Codex / Claude Code / OpenClaw / OpenCode / Hermes，
-    //       国产在后：WorkBuddy / Trae / Qoder / CodeBuddy / Kimi …）
+    // MARK: 内置候选（国际在前：Codex / Claude Code / OpenClaw / OpenCode / Hermes /
+    //       Gemini CLI / Grok Build，国产在后：WorkBuddy / Trae / Qoder / CodeBuddy / Kimi …）
     // 官方 logo 放 Resources/logos/（来源：GitHub org avatar / 官网 favicon），
     // 无 logo 的用 SF Symbol 兜底。
 
@@ -127,7 +127,9 @@ final class AgentRegistry: ObservableObject {
             AgentProfile(id: "hermes", name: "Hermes Agent", vendor: "Nous Research", iconName: "wind",
                          logo: "hermes", skillPath: p(".hermes/skills")),
             AgentProfile(id: "gemini-cli", name: "Gemini CLI", vendor: "Google", iconName: "sparkle",
-                         skillPath: p(".gemini/skills")),
+                         logo: "gemini-cli", skillPath: p(".gemini/skills")),
+            AgentProfile(id: "grok", name: "Grok Build", vendor: "xAI", iconName: "bolt.fill",
+                         logo: "grok", skillPath: p(".grok/skills")),
             // ── 国产 ──
             AgentProfile(id: "workbuddy", name: "WorkBuddy", vendor: "腾讯", iconName: "bubble.left.and.text.bubble.right",
                          logo: "workbuddy", skillPath: p(".workbuddy/skills")),
