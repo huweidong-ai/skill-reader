@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - 首次启动：Agent 配置页
 
@@ -8,6 +9,7 @@ struct AgentSetupView: View {
     @EnvironmentObject var state: AppState
     @State private var agents: [AgentProfile]
     @State private var showCustomForm = false
+    @State private var showAllCandidates = false
 
     init() {
         let current = AgentRegistry.shared.agents
@@ -20,17 +22,54 @@ struct AgentSetupView: View {
         }
     }
 
+    /// 实时判断某 Agent 的 skills 目录是否真实存在（编辑路径后也能即时反映）
+    private func isReady(_ a: AgentProfile) -> Bool {
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(
+            atPath: (a.skillPath as NSString).expandingTildeInPath, isDirectory: &isDir)
+            && isDir.boolValue
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
             ScrollView {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 260, maximum: 340), spacing: 12)],
-                    spacing: 12
-                ) {
-                    ForEach($agents) { $agent in
-                        AgentCard(agent: $agent) { pickFolder(for: $agent) }
+                VStack(alignment: .leading, spacing: 18) {
+                    // ── 主区：已安装 / 自定义（突出展示）──
+                    sectionHeader("已配置 / 已安装")
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 260, maximum: 340), spacing: 12)],
+                        spacing: 12
+                    ) {
+                        ForEach($agents) { $agent in
+                            if isReady(agent) || agent.isCustom {
+                                AgentCard(agent: $agent) { pickFolder(for: $agent) }
+                            }
+                        }
+                    }
+
+                    // ── 折叠区：未安装的内置候选（默认收起，保持面板干净）──
+                    let hidden = agents.filter { !isReady($0) && !$0.isCustom }
+                    if !hidden.isEmpty {
+                        DisclosureGroup(isExpanded: $showAllCandidates) {
+                            LazyVGrid(
+                                columns: [GridItem(.adaptive(minimum: 260, maximum: 340), spacing: 12)],
+                                spacing: 12
+                            ) {
+                                ForEach($agents) { $agent in
+                                    if !isReady(agent) && !agent.isCustom {
+                                        AgentCard(agent: $agent) { pickFolder(for: $agent) }
+                                    }
+                                }
+                            }
+                            .padding(.top, 8)
+                        } label: {
+                            Text("更多可选 Agent（\(hidden.count)）")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 16)
                     }
                 }
                 .padding(16)
@@ -40,6 +79,14 @@ struct AgentSetupView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .sheet(isPresented: $showCustomForm) { customSheet }
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in handleDrop(providers) }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 4)
     }
 
     // MARK: 顶部说明（简洁，不再抄 CC Switch 的不相关工具栏）
@@ -98,9 +145,9 @@ struct AgentSetupView: View {
     /// 底部摘要：已选 N 个，本机已安装 M 个
     private var summary: String {
         let enabled = agents.filter { $0.enabled }.count
-        let detected = agents.filter { $0.detected }.count
+        let detected = agents.filter { isReady($0) }.count
         let totalSkills = agents.filter { $0.enabled }.reduce(0) { $0 + max($1.skillCount, 0) }
-        return "已选 \(enabled) / \(agents.count) 个 Agent · 本机已探测 \(detected) 个 · 共 \(totalSkills) 个 skill"
+        return "已选 \(enabled) / \(agents.count) 个 Agent · 本机已安装 \(detected) 个 · 共 \(totalSkills) 个 skill"
     }
 
     // MARK: 自定义 Agent 表单
@@ -232,6 +279,35 @@ struct AgentSetupView: View {
         showCustomForm = false
     }
 
+    // MARK: 拖拽文件夹自动创建自定义 Agent
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        provider.loadItem(forTypeIdentifier: "public.file-URL", options: nil) { item, _ in
+            var url: URL?
+            if let u = item as? URL { url = u }
+            else if let data = item as? Data { url = URL(dataRepresentation: data, relativeTo: nil) }
+            guard let url, url.hasDirectoryPath else { return }
+            DispatchQueue.main.async { self.addCustomFromDrop(url: url) }
+        }
+        return true
+    }
+
+    private func addCustomFromDrop(url: URL) {
+        let path = url.path
+        let parentName = url.deletingLastPathComponent().lastPathComponent
+        let name = parentName.isEmpty ? "自定义" : parentName
+        let id = derivedID(from: name)
+        let agent = AgentProfile(
+            id: id, name: name, vendor: "自定义",
+            iconName: "puzzlepiece.extension", skillPath: path,
+            enabled: true, isCustom: true
+        )
+        if !agents.contains(where: { $0.id == agent.id }) {
+            agents.append(agent)
+        }
+    }
+
     // MARK: 目录选择（内置 Agent 卡片用）
 
     private func pickFolder(for agent: Binding<AgentProfile>) {
@@ -258,7 +334,16 @@ struct AgentCard: View {
     var onBrowse: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // 未安装的内置候选：不显示开关与路径编辑区（开关无意义），仅展示灰态
+        let ready = {
+            var isDir: ObjCBool = false
+            return FileManager.default.fileExists(
+                atPath: (agent.skillPath as NSString).expandingTildeInPath, isDirectory: &isDir)
+                && isDir.boolValue
+        }()
+        let manageable = ready || agent.isCustom
+
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
                 AgentIcon(agent: agent)
                 VStack(alignment: .leading, spacing: 2) {
@@ -266,22 +351,24 @@ struct AgentCard: View {
                     Text(agent.vendor).font(.system(size: 11)).foregroundStyle(.tertiary)
                 }
                 Spacer()
-                Toggle("", isOn: $agent.enabled)
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .help("开启后，该 Agent 的 skills 目录会挂载到 ~/.agent/skills，统一纳入 SkillReader 管理")
+                if manageable {
+                    Toggle("", isOn: $agent.enabled)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .help("开启后，该 Agent 的 skills 目录会挂载到 ~/.agent/skills，统一纳入 SkillReader 管理")
+                }
             }
 
             // 状态行：探测状态 + skill 数量
             HStack(spacing: 6) {
                 Circle()
-                    .fill(agent.detected ? Color.green : Color.gray.opacity(0.5))
+                    .fill(ready ? Color.green : Color.gray.opacity(0.5))
                     .frame(width: 7, height: 7)
-                Text(agent.detected ? "已就绪" : "未安装 / 路径待确认")
+                Text(ready ? "已就绪" : "未安装")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
-                if agent.detected {
+                if ready {
                     Text("·").font(.system(size: 10)).foregroundStyle(.tertiary)
                     let count = agent.skillCount
                     Text("\(count) 个 skill")
@@ -294,7 +381,7 @@ struct AgentCard: View {
                 Spacer()
             }
 
-            if agent.enabled {
+            if manageable {
                 VStack(alignment: .leading, spacing: 4) {
                     if !agent.isCustom {
                         Text("Skills 目录").font(.system(size: 10)).foregroundStyle(.tertiary)
@@ -346,12 +433,13 @@ struct AgentCard: View {
             }
         }
         .padding(12)
+        .opacity(ready || agent.isCustom ? 1 : 0.85)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color(nsColor: .controlBackgroundColor))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(agent.enabled ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
+                        .stroke(manageable && agent.enabled ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
                 )
         )
     }

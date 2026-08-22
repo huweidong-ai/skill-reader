@@ -219,10 +219,9 @@ final class AgentRegistry: ObservableObject {
                     let sub = (link as NSString).appendingPathComponent(label)
                     try? AgentRegistry.linkAgent(link: sub, target: path)
                 }
-            } else {
-                // 没有任何源存在：仍建立空挂载点，保证切换菜单项可用
-                try? fm.createDirectory(atPath: link, withIntermediateDirectories: true)
             }
+            // sources.count == 0：本机未安装该 Agent（核心 + 额外路径都不存在），
+            // 不建立空挂载点，避免 ~/.agent/skills 出现指向空目录的死链。
         }
     }
 
