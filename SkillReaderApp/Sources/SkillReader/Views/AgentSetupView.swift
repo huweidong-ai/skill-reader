@@ -198,6 +198,9 @@ struct AgentSetupView: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = "选择"
+        if !customPath.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: customPath)
+        }
         if panel.runModal() == .OK, let url = panel.url {
             customPath = url.path
             syncDerivedFields()
@@ -238,6 +241,10 @@ struct AgentSetupView: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = "选择"
+        let current = agent.wrappedValue.skillPath
+        if !current.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: current)
+        }
         if panel.runModal() == .OK, let url = panel.url {
             agent.wrappedValue.skillPath = url.path
         }
