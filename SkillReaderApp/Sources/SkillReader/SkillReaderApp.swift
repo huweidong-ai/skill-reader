@@ -32,6 +32,7 @@ struct SkillReaderApp: App {
             }
         }
         .windowResizability(.contentMinSize)
+        .defaultPosition(.center)
         .commands {
             CommandGroup(after: .sidebar) {
                 Button("显示 / 隐藏大纲") {

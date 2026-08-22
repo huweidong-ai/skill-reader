@@ -183,17 +183,44 @@ final class AgentRegistry: ObservableObject {
     }
 
     private func rebuildSymlinks() {
+        let fm = FileManager.default
         // ~/.agent/skills 是本工具的专属集中管理目录，整体重建
-        if let existing = try? FileManager.default.contentsOfDirectory(atPath: skillsMount) {
+        if let existing = try? fm.contentsOfDirectory(atPath: skillsMount) {
             for name in existing {
                 let pth = (skillsMount as NSString).appendingPathComponent(name)
-                try? FileManager.default.removeItem(atPath: pth)
+                try? fm.removeItem(atPath: pth)
             }
         }
         for agent in agents where agent.enabled {
-            let target = (agent.skillPath as NSString).expandingTildeInPath
             let link = (skillsMount as NSString).appendingPathComponent(agent.id)
-            try? AgentRegistry.linkAgent(link: link, target: target)
+            // 收集所有「存在」的源路径（核心 + 额外），按稳定顺序去重
+            var seen = Set<String>()
+            var sources: [(label: String, path: String)] = []
+            let all = [("core", agent.skillPath)] + agent.extraSkillPaths.enumerated().map { ("extra\($0)", $1) }
+            for (label, raw) in all {
+                let path = (raw as NSString).expandingTildeInPath
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { continue }
+                let real = (path as NSString).standardizingPath
+                if seen.insert(real).inserted {
+                    sources.append((label, real))
+                }
+            }
+            // 单个源：直接单层 symlink（保持原有读取逻辑不变）
+            if sources.count == 1 {
+                try? AgentRegistry.linkAgent(link: link, target: sources[0].path)
+            } else if sources.count > 1 {
+                // 多路径：聚合目录 —— 在 <id>/ 下为每个源建立二级 symlink，
+                // 让 SkillStore 下钻一层即可读到所有来源的 skill（OpenClaw 多路径场景）。
+                try? fm.createDirectory(atPath: link, withIntermediateDirectories: true)
+                for (label, path) in sources {
+                    let sub = (link as NSString).appendingPathComponent(label)
+                    try? AgentRegistry.linkAgent(link: sub, target: path)
+                }
+            } else {
+                // 没有任何源存在：仍建立空挂载点，保证切换菜单项可用
+                try? fm.createDirectory(atPath: link, withIntermediateDirectories: true)
+            }
         }
     }
 

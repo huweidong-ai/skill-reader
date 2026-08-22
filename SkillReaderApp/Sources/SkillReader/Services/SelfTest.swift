@@ -123,6 +123,32 @@ enum SelfTest {
             try? FileManager.default.removeItem(atPath: base)
         }
 
+        // ---- SkillStore.listSkills 聚合层下钻（OpenClaw 多路径挂载场景）----
+        do {
+            let base = NSTemporaryDirectory() + "skillreader-aggregate-\(UUID().uuidString)"
+            let aggregate = base + "/openclaw"          // 模拟 ~/.agent/skills/openclaw
+            let core = aggregate + "/core"              // 二级：核心路径（可能为空）
+            let ws = aggregate + "/workspace"           // 二级：workspace/skills
+            try? FileManager.default.createDirectory(atPath: core, withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(atPath: ws + "/cam-cap", withIntermediateDirectories: true)
+            try? "x".write(toFile: ws + "/cam-cap/SKILL.md", atomically: true, encoding: .utf8)
+            try? FileManager.default.createDirectory(atPath: ws + "/screen-cap", withIntermediateDirectories: true)
+            try? "x".write(toFile: ws + "/screen-cap/SKILL.md", atomically: true, encoding: .utf8)
+
+            let store = SkillStore()
+            store.loadRoots(extra: [aggregate])
+            // 切到聚合 root
+            if let id = store.roots.first(where: { $0.path == aggregate })?.id {
+                store.currentRootID = id
+            }
+            let skills = store.listSkills()
+            let names = skills.map { $0.name }.sorted()
+            check(names == ["cam-cap", "screen-cap"],
+                  "aggregate: listSkills drills into aggregate layer (got \(names))")
+
+            try? FileManager.default.removeItem(atPath: base)
+        }
+
         // ---- AgentProfile Codable：extraSkillPaths 持久化 + detected 不持久化 ----
         do {
             var p = AgentProfile(id: "x", name: "X Agent", vendor: "v", iconName: "star",

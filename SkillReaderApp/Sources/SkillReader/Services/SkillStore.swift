@@ -129,21 +129,46 @@ final class SkillStore: ObservableObject {
 
     func listSkills() -> [Skill] {
         guard let root = currentRootPath else { return [] }
-        var skills: [Skill] = []
-        let entries = (try? FileManager.default.contentsOfDirectory(atPath: root).sorted()) ?? []
+        var collected: [Skill] = []
+        // 顶层按原逻辑收集；遇到「聚合层」（目录本身不是 skill 包，
+        // 用于容纳多路径 symlink）则下钻一层，把各来源的 skill 收上来。
+        collectSkills(in: root, into: &collected, topLevel: true)
+        return dedupeSkills(collected)
+    }
+
+    private func collectSkills(in dir: String, into collected: inout [Skill], topLevel: Bool) {
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: dir).sorted()) ?? []
         for name in entries {
             if name.hasPrefix(".") || skipDirs.contains(name) { continue }
-            let full = (root as NSString).appendingPathComponent(name)
+            let full = (dir as NSString).appendingPathComponent(name)
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: full, isDirectory: &isDir) else { continue }
             if isDir.boolValue {
                 if isBareGit(full) { continue }
-                skills.append(scanPackage(root: root, name: name, full: full))
+                // 自身是 skill 包（含 SKILL.md）
+                let entryPath = (full as NSString).appendingPathComponent("SKILL.md")
+                if FileManager.default.fileExists(atPath: entryPath) {
+                    collected.append(scanPackage(root: dir, name: name, full: full))
+                } else if topLevel {
+                    // 聚合层（如 OpenClaw 多路径挂载）：下钻一层找 skill
+                    collectSkills(in: full, into: &collected, topLevel: false)
+                }
             } else if name.lowercased().hasSuffix(".md") || name.lowercased().hasSuffix(".markdown") {
-                skills.append(scanStandalone(root: root, name: name, full: full))
+                collected.append(scanStandalone(root: dir, name: name, full: full))
             }
         }
-        return skills
+    }
+
+    private func dedupeSkills(_ list: [Skill]) -> [Skill] {
+        var seen = Set<String>()
+        var result: [Skill] = []
+        for s in list {
+            // 同名 skill 在多路径中可能出现，保留先遇到的
+            if seen.contains(s.name) { continue }
+            seen.insert(s.name)
+            result.append(s)
+        }
+        return result
     }
 
     private func isBareGit(_ full: String) -> Bool {
