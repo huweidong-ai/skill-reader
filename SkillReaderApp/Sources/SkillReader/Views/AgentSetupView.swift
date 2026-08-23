@@ -133,7 +133,7 @@ struct AgentSetupView: View {
         switch segment {
         case .installed:  return "本机尚未检测到已安装的 Agent。可切到「候选」手动指定路径，或切到「自定义」添加。"
         case .candidates: return "没有未配置的候选 Agent。"
-        case .custom:     return "还没有自定义 Agent，把文件夹拖到下方，或用底部「添加自定义 Agent」。"
+        case .custom:     return "还没有自定义 Agent，把文件夹拖到下方，或点虚线框选择文件夹自动添加。"
         }
     }
 
@@ -142,19 +142,34 @@ struct AgentSetupView: View {
             Image(systemName: "plus.circle")
                 .font(.system(size: 22))
                 .foregroundStyle(isDropTarget ? Color.accentColor : Color.secondary)
-            Text("拖文件夹到此，自动添加为自定义 Agent")
+            Text("拖文件夹到此，或点此选择文件夹，自动添加为自定义 Agent")
                 .font(.system(size: 12))
                 .foregroundStyle(isDropTarget ? Color.accentColor : .secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 22)
+        .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .stroke(isDropTarget ? Color.accentColor : Color.secondary.opacity(0.4),
                         style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
         )
         .animation(.easeInOut(duration: 0.15), value: isDropTarget)
+        .onTapGesture { tapAddCustomFromPanel() }
         .onDrop(of: [.fileURL], isTargeted: $isDropTarget) { providers in handleDrop(providers) }
+    }
+
+    /// 点击拖拽区：弹出文件选择面板，选目录后自动创建自定义 Agent
+    private func tapAddCustomFromPanel() {
+        let panel = NSOpenPanel()
+        panel.title = "选择 Skills 目录"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "选择"
+        if panel.runModal() == .OK, let url = panel.url, url.hasDirectoryPath {
+            addCustomFromDrop(url: url)
+        }
     }
 
     // MARK: 顶部说明
@@ -190,17 +205,6 @@ struct AgentSetupView: View {
 
     private var footer: some View {
         HStack {
-            // 「添加自定义 Agent」只在自定义分段出现，避免与已安装/候选分段功能重叠
-            if segment == .custom {
-                Button {
-                    showCustomForm = true
-                } label: {
-                    Label("添加自定义 Agent", systemImage: "plus")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.bordered)
-            }
-
             Text(summary)
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
@@ -443,7 +447,7 @@ struct AgentRow: View {
                                 .fill(ready ? Color.green : Color.gray.opacity(0.5))
                                 .frame(width: 6, height: 6)
                             let count = agent.skillCount
-                            Text(ready ? (count > 0 ? "已就绪" : "已安装") : (agent.isCustom ? "自定义" : "未安装"))
+                            Text(ready ? (count > 0 ? "已就绪" : "目录存在") : (agent.isCustom ? "自定义" : "未安装"))
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                             if ready {
@@ -487,6 +491,9 @@ struct AgentRow: View {
 
                 // 可管理的才显示开关（未安装的内置候选无开关意义）
                 if manageable {
+                    Text("纳入管理")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                     Toggle("", isOn: $agent.enabled)
                         .toggleStyle(.switch)
                         .labelsHidden()
@@ -507,6 +514,11 @@ struct AgentRow: View {
             // 展开区：路径编辑（手风琴，按需展开，主列表保持清爽）
             if expanded {
                 VStack(alignment: .leading, spacing: 8) {
+                    Text(agent.enabled
+                         ? "已纳入 SkillReader 管理，会挂载到 ~/.agent/skills 统一查看。"
+                         : "未纳入管理：关闭后该 Agent 的 skills 不会被读取。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(agent.enabled ? .secondary : .tertiary)
                     if !agent.isCustom {
                         Text("Skills 目录").font(.system(size: 10)).foregroundStyle(.tertiary)
                     }
