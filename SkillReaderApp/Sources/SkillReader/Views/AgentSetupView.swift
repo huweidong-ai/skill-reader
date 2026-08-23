@@ -96,9 +96,10 @@ struct AgentSetupView: View {
                             }
                         }
 
-                        // 拖拽添加自定义 Agent 的落点提示区（全局，任何分段都能用）
-                        dropZone
-                            .id("dropZone")
+                        // 拖拽添加自定义 Agent 的落点提示区，只在「自定义」分段出现
+                        if segment == .custom {
+                            dropZone
+                        }
                     }
                     .padding(16)
                     .id("listTop")
@@ -162,12 +163,24 @@ struct AgentSetupView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("配置要管理的 Agent")
                 .font(.system(size: 18, weight: .bold))
-            Text("勾选你本机安装的 Agent，SkillReader 会把它们的 skills 目录集中挂载到 ")
-                + Text("~/.agent/skills").font(.system(size: 12, design: .monospaced)).foregroundStyle(Color.accentColor)
-                + Text(" 下统一查看与管理。未自动识别的路径可手动修改。")
+            HStack(spacing: 0) {
+                Text("勾选你本机安装的 Agent，SkillReader 会把它们的 skills 目录集中挂载到 ")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Button {
+                    openSkillsMount()
+                } label: {
+                    Text("~/.agent/skills")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(Color.accentColor)
+                        .underline()
+                }
+                .buttonStyle(.plain)
+                Text(" 下统一查看与管理。未自动识别的路径可手动修改。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
         }
-        .font(.system(size: 12))
-        .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -177,13 +190,16 @@ struct AgentSetupView: View {
 
     private var footer: some View {
         HStack {
-            Button {
-                showCustomForm = true
-            } label: {
-                Label("添加自定义 Agent", systemImage: "plus")
-                    .font(.system(size: 12))
+            // 「添加自定义 Agent」只在自定义分段出现，避免与已安装/候选分段功能重叠
+            if segment == .custom {
+                Button {
+                    showCustomForm = true
+                } label: {
+                    Label("添加自定义 Agent", systemImage: "plus")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
 
             Text(summary)
                 .font(.system(size: 11))
@@ -377,6 +393,10 @@ struct AgentSetupView: View {
 
     // MARK: 目录选择（内置 Agent 行展开后用）
 
+    private func openSkillsMount() {
+        NSWorkspace.shared.open(URL(fileURLWithPath: AgentRegistry.shared.skillsMount))
+    }
+
     private func pickFolder(for agent: Binding<AgentProfile>) {
         let panel = NSOpenPanel()
         panel.title = "选择 Skills 目录"
@@ -422,15 +442,19 @@ struct AgentRow: View {
                             Circle()
                                 .fill(ready ? Color.green : Color.gray.opacity(0.5))
                                 .frame(width: 6, height: 6)
-                            Text(ready ? "已就绪" : (agent.isCustom ? "自定义" : "未安装"))
+                            let count = agent.skillCount
+                            Text(ready ? (count > 0 ? "已就绪" : "已安装") : (agent.isCustom ? "自定义" : "未安装"))
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                             if ready {
-                                let count = agent.skillCount
                                 if count > 0 {
                                     Text("· \(count) 个 skill")
                                         .font(.system(size: 11))
                                         .foregroundStyle(.secondary)
+                                } else {
+                                    Text("· 暂无 skill")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.tertiary)
                                 }
                                 if agent.extraSkillPaths.count > 0 {
                                     Text("· 多路径")
