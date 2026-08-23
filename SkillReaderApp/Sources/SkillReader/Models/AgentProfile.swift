@@ -18,15 +18,17 @@ struct AgentProfile: Identifiable, Codable, Equatable {
     var enabled: Bool         // 是否在 SkillReader 中纳入管理
     var isCustom: Bool        // 是否用户自定义 Agent
     var detected: Bool        // 运行时探测：任一路径存在即为 true（不持久化）
+    var vendorUrl: String? = nil   // 厂商官网（候选行「去官网」按钮用，缺失则不显示）
 
     init(id: String, name: String, vendor: String, iconName: String, logo: String? = nil,
-         execPath: String = "", skillPath: String, extraSkillPaths: [String] = [],
+         vendorUrl: String? = nil, execPath: String = "", skillPath: String, extraSkillPaths: [String] = [],
          enabled: Bool = false, isCustom: Bool = false) {
         self.id = id
         self.name = name
         self.vendor = vendor
         self.iconName = iconName
         self.logo = logo
+        self.vendorUrl = vendorUrl
         self.execPath = execPath
         self.skillPath = skillPath
         self.extraSkillPaths = extraSkillPaths
@@ -47,7 +49,7 @@ struct AgentProfile: Identifiable, Codable, Equatable {
 
     // detected 不参与持久化：CodingKeys 不含它，解码后由 init(from:) 重新探测。
     enum CodingKeys: String, CodingKey {
-        case id, name, vendor, iconName, logo, execPath, skillPath, extraSkillPaths, enabled, isCustom
+        case id, name, vendor, iconName, logo, vendorUrl, execPath, skillPath, extraSkillPaths, enabled, isCustom
     }
 
     init(from decoder: Decoder) throws {
@@ -57,6 +59,7 @@ struct AgentProfile: Identifiable, Codable, Equatable {
         vendor = try c.decode(String.self, forKey: .vendor)
         iconName = try c.decode(String.self, forKey: .iconName)
         logo = try c.decodeIfPresent(String.self, forKey: .logo) ?? nil
+        vendorUrl = try c.decodeIfPresent(String.self, forKey: .vendorUrl) ?? nil
         execPath = try c.decodeIfPresent(String.self, forKey: .execPath) ?? ""
         skillPath = try c.decode(String.self, forKey: .skillPath)
         extraSkillPaths = try c.decodeIfPresent([String].self, forKey: .extraSkillPaths) ?? []
@@ -114,33 +117,33 @@ final class AgentRegistry: ObservableObject {
         return [
             // ── 国际 ──
             AgentProfile(id: "codex", name: "Codex CLI", vendor: "OpenAI", iconName: "terminal",
-                         logo: "codex", skillPath: p(".codex/skills")),
+                         logo: "codex", vendorUrl: "https://chatgpt.com/codex", skillPath: p(".codex/skills")),
             AgentProfile(id: "claude-code", name: "Claude Code", vendor: "Anthropic", iconName: "brain",
-                         logo: "claude-code", skillPath: p(".claude/skills")),
+                         logo: "claude-code", vendorUrl: "https://claude.com/product/claude-code", skillPath: p(".claude/skills")),
             // OpenClaw 真实 skill 在 workspace/skills，~/.openclaw/skills 多数为空
             // 也共用 ~/.agents/skills（与 Claude Code 共享）
             AgentProfile(id: "openclaw", name: "OpenClaw", vendor: "开源", iconName: "shippingbox",
-                         logo: "openclaw", skillPath: p(".openclaw/skills"),
+                         logo: "openclaw", vendorUrl: "https://openclaw.ai", skillPath: p(".openclaw/skills"),
                          extraSkillPaths: [p(".openclaw/workspace/skills"), p(".agents/skills")]),
             AgentProfile(id: "opencode", name: "OpenCode", vendor: "Anomaly", iconName: "curlybraces",
-                         logo: "opencode", skillPath: p(".config/opencode/skills")),
+                         logo: "opencode", vendorUrl: "https://opencode.ai", skillPath: p(".config/opencode/skills")),
             AgentProfile(id: "hermes", name: "Hermes Agent", vendor: "Nous Research", iconName: "wind",
-                         logo: "hermes", skillPath: p(".hermes/skills")),
+                         logo: "hermes", vendorUrl: "https://hermes-agent.nousresearch.com/docs", skillPath: p(".hermes/skills")),
             AgentProfile(id: "gemini-cli", name: "Gemini CLI", vendor: "Google", iconName: "sparkle",
-                         logo: "gemini-cli", skillPath: p(".gemini/skills")),
+                         logo: "gemini-cli", vendorUrl: "https://github.com/google-gemini/gemini-cli", skillPath: p(".gemini/skills")),
             AgentProfile(id: "grok", name: "Grok Build", vendor: "xAI", iconName: "bolt.fill",
-                         logo: "grok", skillPath: p(".grok/skills")),
+                         logo: "grok", vendorUrl: "https://grok.com", skillPath: p(".grok/skills")),
             // ── 国产 ──
             AgentProfile(id: "workbuddy", name: "WorkBuddy", vendor: "腾讯", iconName: "bubble.left.and.text.bubble.right",
-                         logo: "workbuddy", skillPath: p(".workbuddy/skills")),
+                         logo: "workbuddy", vendorUrl: "https://www.workbuddy.cn", skillPath: p(".workbuddy/skills")),
             AgentProfile(id: "trae", name: "Trae", vendor: "字节", iconName: "globe",
-                         logo: "trae", skillPath: p(".trae/skills")),
+                         logo: "trae", vendorUrl: "https://www.trae.com", skillPath: p(".trae/skills")),
             AgentProfile(id: "qoderwork", name: "QoderWork", vendor: "阿里", iconName: "qrcode.viewfinder",
-                         logo: "qoderwork", skillPath: p(".qoderwork/skills")),
+                         logo: "qoderwork", vendorUrl: "https://qoder.com", skillPath: p(".qoderwork/skills")),
             AgentProfile(id: "codebuddy", name: "CodeBuddy", vendor: "腾讯", iconName: "hammer",
-                         logo: "codebuddy", skillPath: p(".codebuddy/skills")),
+                         logo: "codebuddy", vendorUrl: "https://www.codebuddy.cn", skillPath: p(".codebuddy/skills")),
             AgentProfile(id: "kimi-code", name: "Kimi Code", vendor: "月之暗面", iconName: "moon.stars",
-                         logo: "kimi", skillPath: p(".kimi/skills")),
+                         logo: "kimi", vendorUrl: "https://kimi.moonshot.cn", skillPath: p(".kimi/skills")),
         ]
     }
 

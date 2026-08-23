@@ -9,14 +9,28 @@ struct AgentSetupView: View {
     @EnvironmentObject var state: AppState
     @State private var agents: [AgentProfile]
     @State private var showCustomForm = false
-    @State private var showAllCandidates = false
+    @State private var segment: SetupSegment = .installed
+    @State private var expandedID: String? = nil
+    @State private var isDropTarget = false
+
+    /// 顶部分段：已安装 / 候选 / 自定义（互斥分区，避免同一 Agent 重复出现）
+    private enum SetupSegment: String, CaseIterable, Identifiable {
+        case installed, candidates, custom
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .installed:  return "已安装"
+            case .candidates: return "候选"
+            case .custom:     return "自定义"
+            }
+        }
+    }
 
     init() {
         let current = AgentRegistry.shared.agents
         // 首次启动（agents.json 不存在）时，用内置候选作为初始 seed
         if current.isEmpty {
-            let seeded = AgentRegistry.candidates()
-            _agents = State(initialValue: seeded)
+            _agents = State(initialValue: AgentRegistry.candidates())
         } else {
             _agents = State(initialValue: current)
         }
@@ -30,80 +44,119 @@ struct AgentSetupView: View {
             && isDir.boolValue
     }
 
+    /// 当前分段下应展示的 Agent（与另外两段互斥）
+    private var visibleAgents: [AgentProfile] {
+        agents.filter { a in
+            switch segment {
+            case .installed:  return !a.isCustom && isReady(a)
+            case .candidates: return !a.isCustom && !isReady(a)
+            case .custom:     return a.isCustom
+            }
+        }
+    }
+
+    private var visibleIDs: Set<String> { Set(visibleAgents.map { $0.id }) }
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
+
+            // ── 分段切换：已安装 / 候选 / 自定义 ──
+            Picker("", selection: $segment) {
+                ForEach(SetupSegment.allCases) { s in
+                    Text(s.title).tag(s)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            Divider()
+
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        // ── 主区：已安装 / 自定义（突出展示）──
-                        sectionHeader("已配置 / 已安装")
-                        LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: 260, maximum: 340), spacing: 12)],
-                            spacing: 12
-                        ) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if visibleAgents.isEmpty {
+                            emptyHint
+                        } else {
                             ForEach($agents) { $agent in
-                                if isReady(agent) || agent.isCustom {
-                                    AgentCard(agent: $agent) { pickFolder(for: $agent) }
+                                if visibleIDs.contains(agent.id) {
+                                    AgentRow(
+                                        agent: $agent,
+                                        expanded: expandedID == agent.id,
+                                        onToggleExpand: {
+                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                expandedID = expandedID == agent.id ? nil : agent.id
+                                            }
+                                        },
+                                        onBrowse: { pickFolder(for: $agent) }
+                                    )
+                                    .id(agent.id)
                                 }
                             }
                         }
 
-                        // ── 折叠区：未安装的内置候选（默认收起，保持面板干净）──
-                        let hidden = agents.filter { !isReady($0) && !$0.isCustom }
-                        if !hidden.isEmpty {
-                            DisclosureGroup(isExpanded: $showAllCandidates) {
-                                LazyVGrid(
-                                    columns: [GridItem(.adaptive(minimum: 260, maximum: 340), spacing: 12)],
-                                    spacing: 12
-                                ) {
-                                    ForEach($agents) { $agent in
-                                        if !isReady(agent) && !agent.isCustom {
-                                            AgentCard(agent: $agent) { pickFolder(for: $agent) }
-                                        }
-                                    }
-                                }
-                                .padding(.top, 8)
-                            } label: {
-                                Text("更多可选 Agent（\(hidden.count)）")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.horizontal, 16)
-                            .id("moreCandidates")
-                        }
+                        // 拖拽添加自定义 Agent 的落点提示区（全局，任何分段都能用）
+                        dropZone
+                            .id("dropZone")
                     }
                     .padding(16)
+                    .id("listTop")
                 }
-                // 展开「更多可选 Agent」后，自动滚动让新出现的 agent 进入视野
-                .onChange(of: showAllCandidates) { _, expanded in
-                    if expanded {
-                        // 等展开动画结束再滚动，定位更准
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                proxy.scrollTo("moreCandidates", anchor: .top)
-                            }
-                        }
+                .onChange(of: segment) { _, _ in
+                    expandedID = nil
+                    // 切换分段后回到列表顶部，避免旧滚动位置错位
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        withAnimation { proxy.scrollTo("listTop", anchor: .top) }
                     }
                 }
             }
+
             Divider()
             footer
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .sheet(isPresented: $showCustomForm) { customSheet }
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in handleDrop(providers) }
     }
 
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(.secondary)
+    private var emptyHint: some View {
+        Text(hintText)
+            .font(.system(size: 12))
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 24)
             .padding(.horizontal, 4)
     }
 
-    // MARK: 顶部说明（简洁，不再抄 CC Switch 的不相关工具栏）
+    private var hintText: String {
+        switch segment {
+        case .installed:  return "本机尚未检测到已安装的 Agent。可切到「候选」手动指定路径，或切到「自定义」添加。"
+        case .candidates: return "没有未配置的候选 Agent。"
+        case .custom:     return "还没有自定义 Agent，把文件夹拖到下方，或用底部「添加自定义 Agent」。"
+        }
+    }
+
+    private var dropZone: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "plus.circle")
+                .font(.system(size: 22))
+                .foregroundStyle(isDropTarget ? Color.accentColor : Color.secondary)
+            Text("拖文件夹到此，自动添加为自定义 Agent")
+                .font(.system(size: 12))
+                .foregroundStyle(isDropTarget ? Color.accentColor : .secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 22)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(isDropTarget ? Color.accentColor : Color.secondary.opacity(0.4),
+                        style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+        )
+        .animation(.easeInOut(duration: 0.15), value: isDropTarget)
+        .onDrop(of: [.fileURL], isTargeted: $isDropTarget) { providers in handleDrop(providers) }
+    }
+
+    // MARK: 顶部说明
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -132,7 +185,6 @@ struct AgentSetupView: View {
             }
             .buttonStyle(.bordered)
 
-            // 统计摘要
             Text(summary)
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
@@ -165,11 +217,6 @@ struct AgentSetupView: View {
     }
 
     // MARK: 自定义 Agent 表单
-    //
-    // 设计原则：
-    //   1) 必填项只有 Skills 目录（核心），目录选定后再派生其他字段
-    //   2) Agent 名称默认 = 上一级目录名（用户可手动覆盖）
-    //   3) ID 用目录名派生（自动）
 
     @State private var customPath = ""
     @State private var customName = ""
@@ -183,7 +230,6 @@ struct AgentSetupView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            // 1. Skills 目录（必填）
             VStack(alignment: .leading, spacing: 4) {
                 Text("Skills 目录").font(.system(size: 12, weight: .medium))
                 HStack(spacing: 4) {
@@ -195,7 +241,6 @@ struct AgentSetupView: View {
                 }
             }
 
-            // 2. Agent 名称（默认 = 上一级目录名，可编辑）
             VStack(alignment: .leading, spacing: 4) {
                 Text("Agent 名称").font(.system(size: 12, weight: .medium))
                 TextField("默认取上一级文件夹名", text: $customName)
@@ -288,9 +333,14 @@ struct AgentSetupView: View {
             iconName: "puzzlepiece.extension", skillPath: path,
             enabled: true, isCustom: true
         )
-        agents.append(agent)
+        if !agents.contains(where: { $0.id == agent.id }) {
+            agents.append(agent)
+        }
         resetCustomForm()
         showCustomForm = false
+        // 添加后自动跳到「自定义」段并展开新行，让用户立刻看到路径
+        segment = .custom
+        expandedID = agent.id
     }
 
     // MARK: 拖拽文件夹自动创建自定义 Agent
@@ -320,9 +370,12 @@ struct AgentSetupView: View {
         if !agents.contains(where: { $0.id == agent.id }) {
             agents.append(agent)
         }
+        // 拖入后自动跳到「自定义」段并展开新行
+        segment = .custom
+        expandedID = agent.id
     }
 
-    // MARK: 目录选择（内置 Agent 卡片用）
+    // MARK: 目录选择（内置 Agent 行展开后用）
 
     private func pickFolder(for agent: Binding<AgentProfile>) {
         let panel = NSOpenPanel()
@@ -341,62 +394,95 @@ struct AgentSetupView: View {
     }
 }
 
-// MARK: - 单个 Agent 卡片
+// MARK: - 单个 Agent 行（行式 + 手风琴展开）
 
-struct AgentCard: View {
+struct AgentRow: View {
     @Binding var agent: AgentProfile
+    var expanded: Bool
+    var onToggleExpand: () -> Void
     var onBrowse: () -> Void
 
-    var body: some View {
-        // 未安装的内置候选：不显示开关与路径编辑区（开关无意义），仅展示灰态
-        let ready = {
-            var isDir: ObjCBool = false
-            return FileManager.default.fileExists(
-                atPath: (agent.skillPath as NSString).expandingTildeInPath, isDirectory: &isDir)
-                && isDir.boolValue
-        }()
-        let manageable = ready || agent.isCustom
+    private var ready: Bool {
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(
+            atPath: (agent.skillPath as NSString).expandingTildeInPath, isDirectory: &isDir)
+            && isDir.boolValue
+    }
+    private var manageable: Bool { ready || agent.isCustom }
 
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 10) {
-                AgentIcon(agent: agent)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(agent.name).font(.system(size: 14, weight: .semibold))
-                    Text(agent.vendor).font(.system(size: 11)).foregroundStyle(.tertiary)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // 主行：点击「图标+名称」或右侧箭头展开/收起；开关、去官网 互不干扰
+            HStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    AgentIcon(agent: agent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(agent.name).font(.system(size: 14, weight: .medium))
+                        HStack(spacing: 5) {
+                            Circle()
+                                .fill(ready ? Color.green : Color.gray.opacity(0.5))
+                                .frame(width: 6, height: 6)
+                            Text(ready ? "已就绪" : (agent.isCustom ? "自定义" : "未安装"))
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                            if ready {
+                                let count = agent.skillCount
+                                if count > 0 {
+                                    Text("· \(count) 个 skill")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                }
+                                if agent.extraSkillPaths.count > 0 {
+                                    Text("· 多路径")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                        }
+                    }
                 }
+                .contentShape(Rectangle())
+                .onTapGesture { onToggleExpand() }
+
                 Spacer()
+
+                // 候选（未安装、非自定义）：给出明确动作「去官网」
+                if !manageable, let urlStr = agent.vendorUrl, let url = URL(string: urlStr) {
+                    Link(destination: url) {
+                        Text("去官网")
+                            .font(.system(size: 11))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.accentColor, lineWidth: 0.5)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // 可管理的才显示开关（未安装的内置候选无开关意义）
                 if manageable {
                     Toggle("", isOn: $agent.enabled)
                         .toggleStyle(.switch)
                         .labelsHidden()
                         .controlSize(.small)
-                        .help("开启后，该 Agent 的 skills 目录会挂载到 ~/.agent/skills，统一纳入 SkillReader 管理")
                 }
-            }
 
-            // 状态行：探测状态 + skill 数量
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(ready ? Color.green : Color.gray.opacity(0.5))
-                    .frame(width: 7, height: 7)
-                Text(ready ? "已就绪" : "未安装")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                if ready {
-                    Text("·").font(.system(size: 10)).foregroundStyle(.tertiary)
-                    let count = agent.skillCount
-                    Text("\(count) 个 skill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(count > 0 ? .primary : .tertiary)
-                    if agent.extraSkillPaths.count > 0 {
-                        Text("· 多路径").font(.system(size: 10)).foregroundStyle(.tertiary)
-                    }
-                }
-                Spacer()
+                // 展开箭头
+                Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 12)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onToggleExpand() }
             }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
 
-            if manageable {
-                VStack(alignment: .leading, spacing: 4) {
+            // 展开区：路径编辑（手风琴，按需展开，主列表保持清爽）
+            if expanded {
+                VStack(alignment: .leading, spacing: 8) {
                     if !agent.isCustom {
                         Text("Skills 目录").font(.system(size: 10)).foregroundStyle(.tertiary)
                     }
@@ -408,7 +494,6 @@ struct AgentCard: View {
                             .buttonStyle(.borderless)
                             .font(.system(size: 11))
                     }
-                    // 额外路径（仅在有内容时显示）：合并的 skill 根目录
                     if !agent.extraSkillPaths.isEmpty {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("额外 skill 路径")
@@ -434,7 +519,7 @@ struct AgentCard: View {
                             TextField("显示名称", text: $agent.name)
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(size: 11))
-                                .frame(width: 120)
+                                .frame(width: 140)
                             TextField("ID", text: $agent.id)
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(size: 11))
@@ -443,18 +528,16 @@ struct AgentCard: View {
                         }
                     }
                 }
-                .padding(.top, 2)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+                .padding(.leading, 38) // 对齐到文字（图标 28 + 间距 10）
             }
         }
-        .padding(12)
-        .opacity(ready || agent.isCustom ? 1 : 0.85)
-        .background(
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+        .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(manageable && agent.enabled ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
-                )
+                .stroke(manageable && agent.enabled ? Color.accentColor.opacity(0.35)
+                        : Color(nsColor: .separatorColor).opacity(0.3), lineWidth: 0.5)
         )
     }
 }
