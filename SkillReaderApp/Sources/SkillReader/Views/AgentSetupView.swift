@@ -34,45 +34,59 @@ struct AgentSetupView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    // ── 主区：已安装 / 自定义（突出展示）──
-                    sectionHeader("已配置 / 已安装")
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 260, maximum: 340), spacing: 12)],
-                        spacing: 12
-                    ) {
-                        ForEach($agents) { $agent in
-                            if isReady(agent) || agent.isCustom {
-                                AgentCard(agent: $agent) { pickFolder(for: $agent) }
-                            }
-                        }
-                    }
-
-                    // ── 折叠区：未安装的内置候选（默认收起，保持面板干净）──
-                    let hidden = agents.filter { !isReady($0) && !$0.isCustom }
-                    if !hidden.isEmpty {
-                        DisclosureGroup(isExpanded: $showAllCandidates) {
-                            LazyVGrid(
-                                columns: [GridItem(.adaptive(minimum: 260, maximum: 340), spacing: 12)],
-                                spacing: 12
-                            ) {
-                                ForEach($agents) { $agent in
-                                    if !isReady(agent) && !agent.isCustom {
-                                        AgentCard(agent: $agent) { pickFolder(for: $agent) }
-                                    }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        // ── 主区：已安装 / 自定义（突出展示）──
+                        sectionHeader("已配置 / 已安装")
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 260, maximum: 340), spacing: 12)],
+                            spacing: 12
+                        ) {
+                            ForEach($agents) { $agent in
+                                if isReady(agent) || agent.isCustom {
+                                    AgentCard(agent: $agent) { pickFolder(for: $agent) }
                                 }
                             }
-                            .padding(.top, 8)
-                        } label: {
-                            Text("更多可选 Agent（\(hidden.count)）")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.secondary)
                         }
-                        .padding(.horizontal, 16)
+
+                        // ── 折叠区：未安装的内置候选（默认收起，保持面板干净）──
+                        let hidden = agents.filter { !isReady($0) && !$0.isCustom }
+                        if !hidden.isEmpty {
+                            DisclosureGroup(isExpanded: $showAllCandidates) {
+                                LazyVGrid(
+                                    columns: [GridItem(.adaptive(minimum: 260, maximum: 340), spacing: 12)],
+                                    spacing: 12
+                                ) {
+                                    ForEach($agents) { $agent in
+                                        if !isReady(agent) && !agent.isCustom {
+                                            AgentCard(agent: $agent) { pickFolder(for: $agent) }
+                                        }
+                                    }
+                                }
+                                .padding(.top, 8)
+                            } label: {
+                                Text("更多可选 Agent（\(hidden.count)）")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 16)
+                            .id("moreCandidates")
+                        }
+                    }
+                    .padding(16)
+                }
+                // 展开「更多可选 Agent」后，自动滚动让新出现的 agent 进入视野
+                .onChange(of: showAllCandidates) { _, expanded in
+                    if expanded {
+                        // 等展开动画结束再滚动，定位更准
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                proxy.scrollTo("moreCandidates", anchor: .top)
+                            }
+                        }
                     }
                 }
-                .padding(16)
             }
             Divider()
             footer
@@ -176,7 +190,7 @@ struct AgentSetupView: View {
                     TextField("例如 ~/.myagent/skills", text: $customPath)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 12))
-                        .onChange(of: customPath) { _ in syncDerivedFields() }
+                        .onChange(of: customPath) { _, _ in syncDerivedFields() }
                     Button("浏览…") { pickCustomFolder() }
                 }
             }
