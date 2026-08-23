@@ -19,9 +19,10 @@ struct AgentProfile: Identifiable, Codable, Equatable {
     var isCustom: Bool        // 是否用户自定义 Agent
     var detected: Bool        // 运行时探测：任一路径存在即为 true（不持久化）
     var vendorUrl: String? = nil   // 厂商官网（候选行「去官网」按钮用，缺失则不显示）
+    var installProbes: [String] = []  // 强安装探测：任一路径存在即视为真已安装（配置/数据目录或 .app 包）
 
     init(id: String, name: String, vendor: String, iconName: String, logo: String? = nil,
-         vendorUrl: String? = nil, execPath: String = "", skillPath: String, extraSkillPaths: [String] = [],
+         vendorUrl: String? = nil, installProbes: [String] = [], execPath: String = "", skillPath: String, extraSkillPaths: [String] = [],
          enabled: Bool = false, isCustom: Bool = false) {
         self.id = id
         self.name = name
@@ -29,6 +30,7 @@ struct AgentProfile: Identifiable, Codable, Equatable {
         self.iconName = iconName
         self.logo = logo
         self.vendorUrl = vendorUrl
+        self.installProbes = installProbes
         self.execPath = execPath
         self.skillPath = skillPath
         self.extraSkillPaths = extraSkillPaths
@@ -49,7 +51,7 @@ struct AgentProfile: Identifiable, Codable, Equatable {
 
     // detected 不参与持久化：CodingKeys 不含它，解码后由 init(from:) 重新探测。
     enum CodingKeys: String, CodingKey {
-        case id, name, vendor, iconName, logo, vendorUrl, execPath, skillPath, extraSkillPaths, enabled, isCustom
+        case id, name, vendor, iconName, logo, vendorUrl, installProbes, execPath, skillPath, extraSkillPaths, enabled, isCustom
     }
 
     init(from decoder: Decoder) throws {
@@ -60,6 +62,7 @@ struct AgentProfile: Identifiable, Codable, Equatable {
         iconName = try c.decode(String.self, forKey: .iconName)
         logo = try c.decodeIfPresent(String.self, forKey: .logo) ?? nil
         vendorUrl = try c.decodeIfPresent(String.self, forKey: .vendorUrl) ?? nil
+        installProbes = try c.decodeIfPresent([String].self, forKey: .installProbes) ?? []
         execPath = try c.decodeIfPresent(String.self, forKey: .execPath) ?? ""
         skillPath = try c.decode(String.self, forKey: .skillPath)
         extraSkillPaths = try c.decodeIfPresent([String].self, forKey: .extraSkillPaths) ?? []
@@ -67,6 +70,15 @@ struct AgentProfile: Identifiable, Codable, Equatable {
         isCustom = try c.decodeIfPresent(Bool.self, forKey: .isCustom) ?? false
         // 解码后即时重新探测真实存在性
         detected = AgentProfile.detect(paths: [skillPath] + extraSkillPaths)
+    }
+
+    /// 强安装探测：任一 installProbe 路径存在即视为真正安装（目录或 .app 包），
+    /// 比「仅 skills 子目录存在」更可靠，可区分真安装 / 残留空文件夹 / 手建目录。
+    var isInstalled: Bool {
+        let fm = FileManager.default
+        return installProbes.contains { raw in
+            fm.fileExists(atPath: (raw as NSString).expandingTildeInPath)
+        }
     }
 
     /// 全部 skill 目录（核心 + 额外），已展开 ~；重复路径去重
@@ -117,33 +129,49 @@ final class AgentRegistry: ObservableObject {
         return [
             // ── 国际 ──
             AgentProfile(id: "codex", name: "Codex CLI", vendor: "OpenAI", iconName: "terminal",
-                         logo: "codex", vendorUrl: "https://chatgpt.com/codex", skillPath: p(".codex/skills")),
+                         logo: "codex", vendorUrl: "https://chatgpt.com/codex",
+                         installProbes: [p(".codex")], skillPath: p(".codex/skills")),
             AgentProfile(id: "claude-code", name: "Claude Code", vendor: "Anthropic", iconName: "brain",
-                         logo: "claude-code", vendorUrl: "https://claude.com/product/claude-code", skillPath: p(".claude/skills")),
+                         logo: "claude-code", vendorUrl: "https://claude.com/product/claude-code",
+                         installProbes: [p(".claude.json"), p(".claude")], skillPath: p(".claude/skills")),
             // OpenClaw 真实 skill 在 workspace/skills，~/.openclaw/skills 多数为空
             // 也共用 ~/.agents/skills（与 Claude Code 共享）
             AgentProfile(id: "openclaw", name: "OpenClaw", vendor: "开源", iconName: "shippingbox",
-                         logo: "openclaw", vendorUrl: "https://openclaw.ai", skillPath: p(".openclaw/skills"),
+                         logo: "openclaw", vendorUrl: "https://openclaw.ai",
+                         installProbes: [p(".openclaw")], skillPath: p(".openclaw/skills"),
                          extraSkillPaths: [p(".openclaw/workspace/skills"), p(".agents/skills")]),
             AgentProfile(id: "opencode", name: "OpenCode", vendor: "Anomaly", iconName: "curlybraces",
-                         logo: "opencode", vendorUrl: "https://opencode.ai", skillPath: p(".config/opencode/skills")),
+                         logo: "opencode", vendorUrl: "https://opencode.ai",
+                         installProbes: [p(".config/opencode")], skillPath: p(".config/opencode/skills")),
             AgentProfile(id: "hermes", name: "Hermes Agent", vendor: "Nous Research", iconName: "wind",
-                         logo: "hermes", vendorUrl: "https://hermes-agent.nousresearch.com/docs", skillPath: p(".hermes/skills")),
+                         logo: "hermes", vendorUrl: "https://hermes-agent.nousresearch.com/docs",
+                         installProbes: [p(".hermes")], skillPath: p(".hermes/skills")),
             AgentProfile(id: "gemini-cli", name: "Gemini CLI", vendor: "Google", iconName: "sparkle",
-                         logo: "gemini-cli", vendorUrl: "https://github.com/google-gemini/gemini-cli", skillPath: p(".gemini/skills")),
+                         logo: "gemini-cli", vendorUrl: "https://github.com/google-gemini/gemini-cli",
+                         installProbes: [p(".gemini")], skillPath: p(".gemini/skills")),
             AgentProfile(id: "grok", name: "Grok Build", vendor: "xAI", iconName: "bolt.fill",
-                         logo: "grok", vendorUrl: "https://grok.com", skillPath: p(".grok/skills")),
-            // ── 国产 ──
+                         logo: "grok", vendorUrl: "https://grok.com",
+                         installProbes: [p(".grok")], skillPath: p(".grok/skills")),
+            // ── 国产（GUI 类除配置目录外，同时探测 .app 包）──
             AgentProfile(id: "workbuddy", name: "WorkBuddy", vendor: "腾讯", iconName: "bubble.left.and.text.bubble.right",
-                         logo: "workbuddy", vendorUrl: "https://www.workbuddy.cn", skillPath: p(".workbuddy/skills")),
+                         logo: "workbuddy", vendorUrl: "https://www.workbuddy.cn",
+                         installProbes: [p(".workbuddy"), "/Applications/WorkBuddy.app", p("Applications/WorkBuddy.app")],
+                         skillPath: p(".workbuddy/skills")),
             AgentProfile(id: "trae", name: "Trae", vendor: "字节", iconName: "globe",
-                         logo: "trae", vendorUrl: "https://www.trae.com", skillPath: p(".trae/skills")),
+                         logo: "trae", vendorUrl: "https://www.trae.com",
+                         installProbes: [p(".trae"), "/Applications/Trae.app", p("Applications/Trae.app")],
+                         skillPath: p(".trae/skills")),
             AgentProfile(id: "qoderwork", name: "QoderWork", vendor: "阿里", iconName: "qrcode.viewfinder",
-                         logo: "qoderwork", vendorUrl: "https://qoder.com", skillPath: p(".qoderwork/skills")),
+                         logo: "qoderwork", vendorUrl: "https://qoder.com",
+                         installProbes: [p(".qoderwork"), "/Applications/QoderWork.app", p("Applications/QoderWork.app")],
+                         skillPath: p(".qoderwork/skills")),
             AgentProfile(id: "codebuddy", name: "CodeBuddy", vendor: "腾讯", iconName: "hammer",
-                         logo: "codebuddy", vendorUrl: "https://www.codebuddy.cn", skillPath: p(".codebuddy/skills")),
+                         logo: "codebuddy", vendorUrl: "https://www.codebuddy.cn",
+                         installProbes: [p(".codebuddy"), "/Applications/CodeBuddy.app", p("Applications/CodeBuddy.app")],
+                         skillPath: p(".codebuddy/skills")),
             AgentProfile(id: "kimi-code", name: "Kimi Code", vendor: "月之暗面", iconName: "moon.stars",
-                         logo: "kimi", vendorUrl: "https://kimi.moonshot.cn", skillPath: p(".kimi/skills")),
+                         logo: "kimi", vendorUrl: "https://kimi.moonshot.cn",
+                         installProbes: [p(".kimi")], skillPath: p(".kimi/skills")),
         ]
     }
 

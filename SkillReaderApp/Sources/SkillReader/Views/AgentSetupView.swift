@@ -36,20 +36,14 @@ struct AgentSetupView: View {
         }
     }
 
-    /// 实时判断某 Agent 的 skills 目录是否真实存在（编辑路径后也能即时反映）
-    private func isReady(_ a: AgentProfile) -> Bool {
-        var isDir: ObjCBool = false
-        return FileManager.default.fileExists(
-            atPath: (a.skillPath as NSString).expandingTildeInPath, isDirectory: &isDir)
-            && isDir.boolValue
-    }
-
-    /// 当前分段下应展示的 Agent（与另外两段互斥）
+    /// 当前分段下应展示的 Agent（与另外两段互斥）。
+    /// 已安装/候选以「强安装探测 isInstalled」为准，而非仅看 skills 子目录是否存在——
+    /// 残留空文件夹不再误判为已安装。
     private var visibleAgents: [AgentProfile] {
         agents.filter { a in
             switch segment {
-            case .installed:  return !a.isCustom && isReady(a)
-            case .candidates: return !a.isCustom && !isReady(a)
+            case .installed:  return !a.isCustom && a.isInstalled
+            case .candidates: return !a.isCustom && !a.isInstalled
             case .custom:     return a.isCustom
             }
         }
@@ -231,9 +225,9 @@ struct AgentSetupView: View {
     /// 底部摘要：已选 N 个，本机已安装 M 个
     private var summary: String {
         let enabled = agents.filter { $0.enabled }.count
-        let detected = agents.filter { isReady($0) }.count
+        let installed = agents.filter { $0.isInstalled }.count
         let totalSkills = agents.filter { $0.enabled }.reduce(0) { $0 + max($1.skillCount, 0) }
-        return "已选 \(enabled) / \(agents.count) 个 Agent · 本机已安装 \(detected) 个 · 共 \(totalSkills) 个 skill"
+        return "已选 \(enabled) / \(agents.count) 个 Agent · 本机已安装 \(installed) 个 · 共 \(totalSkills) 个 skill"
     }
 
     // MARK: 自定义 Agent 表单
@@ -426,13 +420,8 @@ struct AgentRow: View {
     var onToggleExpand: () -> Void
     var onBrowse: () -> Void
 
-    private var ready: Bool {
-        var isDir: ObjCBool = false
-        return FileManager.default.fileExists(
-            atPath: (agent.skillPath as NSString).expandingTildeInPath, isDirectory: &isDir)
-            && isDir.boolValue
-    }
-    private var manageable: Bool { ready || agent.isCustom }
+    private var installed: Bool { agent.isInstalled }
+    private var manageable: Bool { installed || agent.isCustom }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -444,22 +433,16 @@ struct AgentRow: View {
                         Text(agent.name).font(.system(size: 14, weight: .medium))
                         HStack(spacing: 5) {
                             Circle()
-                                .fill(ready ? Color.green : Color.gray.opacity(0.5))
+                                .fill(installed ? Color.green : (agent.isCustom ? Color.blue.opacity(0.6) : Color.gray.opacity(0.5)))
                                 .frame(width: 6, height: 6)
-                            let count = agent.skillCount
-                            Text(ready ? (count > 0 ? "已就绪" : "目录存在") : (agent.isCustom ? "自定义" : "未安装"))
+                            Text(installed ? "已安装" : (agent.isCustom ? "自定义" : "未安装"))
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
-                            if ready {
-                                if count > 0 {
-                                    Text("· \(count) 个 skill")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    Text("· 暂无 skill")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.tertiary)
-                                }
+                            if installed {
+                                let count = agent.skillCount
+                                Text(count > 0 ? "· \(count) 个 skill" : "· 暂无 skill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(count > 0 ? .secondary : .tertiary)
                                 if agent.extraSkillPaths.count > 0 {
                                     Text("· 多路径")
                                         .font(.system(size: 11))
