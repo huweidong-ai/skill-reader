@@ -425,7 +425,7 @@ struct AgentRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // 主行：点击「图标+名称」或右侧箭头展开/收起；开关、去官网 互不干扰
+            // 主行：点击整行任意空白处展开/收起；开关、去官网 互不干扰
             HStack(spacing: 10) {
                 HStack(spacing: 10) {
                     AgentIcon(agent: agent)
@@ -452,8 +452,6 @@ struct AgentRow: View {
                         }
                     }
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { onToggleExpand() }
 
                 Spacer()
 
@@ -488,11 +486,14 @@ struct AgentRow: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.tertiary)
                     .frame(width: 12)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onToggleExpand() }
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 12)
+            .background(
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { onToggleExpand() }
+            )
 
             // 展开区：路径编辑（手风琴，按需展开，主列表保持清爽）
             if expanded {
