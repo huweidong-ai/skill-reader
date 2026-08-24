@@ -112,6 +112,13 @@ body {
 }
 ::selection { background: var(--accent-soft); }
 #content { padding: 30px 28px 90px; overflow-y: auto; height: 100vh; }
+/* 代码/纯文本/Source view 贴底撑满 */
+body.code-view #content { padding-bottom: 0; overflow: hidden; }
+body.code-view .code-view {
+  height: calc(100vh - 30px);
+  display: flex; flex-direction: column;
+}
+body.code-view .code-body { flex: 1 1 auto; max-height: none; }
 
 /* ---------- 欢迎页 ---------- */
 .welcome {
@@ -1698,6 +1705,7 @@ function renderMarkdown(p) {
 }
 
 function renderCode(p) {
+  document.body.classList.add("code-view");
   const lines = p.content.split("\n");
   const lang = p.lang || "plaintext";
   let html = p.content;
@@ -1797,6 +1805,7 @@ function renderWelcome() {
 // Swift 调用入口
 window.renderSkill = function(p) {
   currentBaseDir = p.baseDir || "";
+  document.body.className = ""; // 各 render 函数按需加特定视图 class
   if (p.kind === "welcome") { renderWelcome(); return; }
   if (p.sourceMode && (p.kind === "md")) { renderSource(p); return; }
   switch (p.kind) {
