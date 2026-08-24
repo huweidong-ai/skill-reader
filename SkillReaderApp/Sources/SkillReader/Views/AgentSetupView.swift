@@ -83,7 +83,8 @@ struct AgentSetupView: View {
                                                 expandedID = expandedID == agent.id ? nil : agent.id
                                             }
                                         },
-                                        onBrowse: { pickFolder(for: $agent) }
+                                        onBrowse: { pickFolder(for: $agent) },
+                                        onRemove: agent.isCustom ? { removeCustom(agent) } : nil
                                     )
                                     .id(agent.id)
                                 }
@@ -389,14 +390,30 @@ struct AgentSetupView: View {
         expandedID = agent.id
     }
 
+    // MARK: 自定义 Agent 删除（取消添加）
+
+    private func removeCustom(_ agent: AgentProfile) {
+        // 二次确认：删除的是配置项与挂载点，不会动你原目录里的 skills 文件
+        let alert = NSAlert()
+        alert.messageText = "删除自定义 Agent"
+        alert.informativeText = "确定删除「\(agent.name)」吗？它将从 SkillReader 管理中移除（仅移除配置与挂载，不会删除你原目录里的 skills 文件）。"
+        alert.addButton(withTitle: "删除")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        // 从列表移除；保存时 save() 会整体重建 ~/.agent/skills，对应符号链接自动清理
+        if let idx = agents.firstIndex(where: { $0.id == agent.id }) {
+            agents.remove(at: idx)
+        }
+        if expandedID == agent.id { expandedID = nil }
+    }
+
     // MARK: 目录选择（内置 Agent 行展开后用）
 
     private func openSkillsMount() {
         NSWorkspace.shared.open(URL(fileURLWithPath: AgentRegistry.shared.skillsMount))
     }
 
-    private func pickFolder(for agent: Binding<AgentProfile>) {
-        let panel = NSOpenPanel()
+    private func pickFolder(for agent: Binding<AgentProfile>) {        let panel = NSOpenPanel()
         panel.title = "选择 Skills 目录"
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -419,6 +436,7 @@ struct AgentRow: View {
     var expanded: Bool
     var onToggleExpand: () -> Void
     var onBrowse: () -> Void
+    var onRemove: (() -> Void)? = nil   // 仅自定义 Agent 提供删除回调
 
     private var installed: Bool { agent.isInstalled }
     private var manageable: Bool { installed || agent.isCustom }
@@ -472,6 +490,19 @@ struct AgentRow: View {
 
                 // 可管理的才显示开关（未安装的内置候选无开关意义）
                 if manageable {
+                    if agent.isCustom {
+                        // 自定义 Agent：提供删除入口（取消添加）
+                        Button {
+                            onRemove?()
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("删除此自定义 Agent（取消添加）")
+                    }
+
                     Text("纳入管理")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
