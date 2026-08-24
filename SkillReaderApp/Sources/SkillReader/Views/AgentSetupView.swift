@@ -619,24 +619,84 @@ struct AgentIcon: View {
 
 /// 从 app 资源加载 Agent 官方 logo（Resources/logos/ 下）
 enum AgentLogo {
+    /// 归一化尺寸：把所有 logo 裁掉透明边、等比放大到内切、居中到统一画布，
+    /// 保证不同来源（32~512px、留白各异）的图标视觉大小一致。
+    private static let normalizedSize = 128
+
     static func image(named name: String) -> NSImage? {
         let fm = FileManager.default
+        var srcURL: URL?
         // 1. .app 打包: Contents/Resources/logos/
         if let res = Bundle.main.resourceURL {
             let cand = res.appendingPathComponent("logos").appendingPathComponent("\(name).png")
-            if fm.fileExists(atPath: cand.path), let img = NSImage(contentsOf: cand) {
-                return img
-            }
+            if fm.fileExists(atPath: cand.path) { srcURL = cand }
         }
         // 2. 裸可执行调试: 可执行文件同级 ../Sources/SkillReader/Resources/logos/
-        if let exe = Bundle.main.executableURL {
+        if srcURL == nil, let exe = Bundle.main.executableURL {
             var dir = exe.deletingLastPathComponent()
             for _ in 0..<4 { dir = dir.deletingLastPathComponent() } // 上溯到项目根
             let cand = dir.appendingPathComponent("Sources/SkillReader/Resources/logos").appendingPathComponent("\(name).png")
-            if fm.fileExists(atPath: cand.path), let img = NSImage(contentsOf: cand) {
-                return img
+            if fm.fileExists(atPath: cand.path) { srcURL = cand }
+        }
+        guard let url = srcURL, let raw = NSImage(contentsOf: url) else { return nil }
+        return AgentLogo.normalizedImage(from: raw)
+    }
+
+    /// 把任意尺寸/留白的 PNG 归一化为统一画布：去透明边 → 等比缩放到内切 → 居中。
+    private static func normalizedImage(from img: NSImage) -> NSImage {
+        guard let tiff = img.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let cg = rep.cgImage else {
+            return img
+        }
+        let srcW = CGFloat(rep.pixelsWide)
+        let srcH = CGFloat(rep.pixelsHigh)
+        guard srcW > 0, srcH > 0 else { return img }
+
+        // 计算非透明区域的 bounding box（去透明边）
+        var minX = Int(srcW), minY = Int(srcH), maxX = 0, maxY = 0
+        let dpi = cg.width > 0 ? CGFloat(rep.pixelsWide) / CGFloat(cg.width) : 1
+        let _ = dpi
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                let a = rep.colorAt(x: x, y: y)?.alphaComponent ?? 0
+                if a > 0.01 {
+                    if x < minX { minX = x }
+                    if x > maxX { maxX = x }
+                    if y < minY { minY = y }
+                    if y > maxY { maxY = y }
+                }
             }
         }
-        return nil
+        let contentW = max(maxX - minX + 1, 1)
+        let contentH = max(maxY - minY + 1, 1)
+
+        // 等比缩放到「内切」归一化画布（留 8% 边距，避免贴边）
+        let target = CGFloat(normalizedSize)
+        let margin = target * 0.08
+        let scale = (target - margin * 2) / max(CGFloat(contentW), CGFloat(contentH))
+        let drawW = CGFloat(contentW) * scale
+        let drawH = CGFloat(contentH) * scale
+        let drawX = (target - drawW) / 2
+        let drawY = (target - drawH) / 2
+
+        let out = NSImage(size: NSSize(width: target, height: target))
+        out.lockFocus()
+        NSColor.clear.set()
+        NSRect(x: 0, y: 0, width: target, height: target).fill()
+        let ctx = NSGraphicsContext.current?.cgContext
+        ctx?.interpolationQuality = .high
+        // 源图坐标 y 轴翻转，按 bounding box 截取并绘制到居中位置
+        let cropRect = NSRect(x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(contentW), height: CGFloat(contentH))
+        if let cropped = cg.cropping(to: cropRect) {
+            ctx?.saveGState()
+            ctx?.translateBy(x: 0, y: target)
+            ctx?.scaleBy(x: 1, y: -1)
+            ctx?.draw(cropped, in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH))
+            ctx?.restoreGState()
+        }
+        out.unlockFocus()
+        out.isTemplate = false
+        return out
     }
 }
