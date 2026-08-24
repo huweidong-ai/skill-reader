@@ -3,3 +3,6 @@ roots.json
 __pycache__/
 *.pyc
 .build/
+.dsh-vision-toolkit/
+design-preview-light.html
+design-preview-dark.html

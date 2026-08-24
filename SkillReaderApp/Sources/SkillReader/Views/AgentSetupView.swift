@@ -136,17 +136,17 @@ struct AgentSetupView: View {
         VStack(spacing: 6) {
             Image(systemName: "plus.circle")
                 .font(.system(size: 22))
-                .foregroundStyle(isDropTarget ? Color.accentColor : Color.secondary)
+                .foregroundStyle(isDropTarget ? Color.srAccent : Color.secondary)
             Text("拖文件夹到此，或点此选择文件夹，自动添加为自定义 Agent")
                 .font(.system(size: 12))
-                .foregroundStyle(isDropTarget ? Color.accentColor : .secondary)
+                .foregroundStyle(isDropTarget ? Color.srAccent : .secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 22)
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(isDropTarget ? Color.accentColor : Color.secondary.opacity(0.4),
+                .stroke(isDropTarget ? Color.srAccent : Color.secondary.opacity(0.4),
                         style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
         )
         .animation(.easeInOut(duration: 0.15), value: isDropTarget)
@@ -182,7 +182,7 @@ struct AgentSetupView: View {
                 } label: {
                     Text("~/.agent/skills")
                         .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.srAccent)
                         .underline()
                 }
                 .buttonStyle(.plain)
@@ -482,7 +482,7 @@ struct AgentRow: View {
                             .padding(.vertical, 3)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Color.accentColor, lineWidth: 0.5)
+                                    .stroke(Color.srAccent, lineWidth: 0.5)
                             )
                     }
                     .buttonStyle(.plain)
@@ -587,7 +587,7 @@ struct AgentRow: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(manageable && agent.enabled ? Color.accentColor.opacity(0.35)
+                .stroke(manageable && agent.enabled ? Color.srAccent.opacity(0.35)
                         : Color(nsColor: .separatorColor).opacity(0.3), lineWidth: 0.5)
         )
     }
@@ -610,7 +610,7 @@ struct AgentIcon: View {
             } else {
                 Image(systemName: agent.iconName)
                     .font(.system(size: 20))
-                    .foregroundStyle(agent.enabled ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(agent.enabled ? Color.srAccent : Color.secondary)
                     .frame(width: 28)
             }
         }

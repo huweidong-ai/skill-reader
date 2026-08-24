@@ -500,9 +500,9 @@ struct SkillRow: View {
     }
 
     private var rowBackground: Color {
-        if isContextTarget { return Color.accentColor.opacity(0.18) }
-        if isActive { return Color.accentColor.opacity(0.12) }
-        if isHovered { return Color(nsColor: .controlBackgroundColor).opacity(0.8) }
+        if isContextTarget { return Color.srAccentSoft }
+        if isActive { return Color.srAccentSoft }
+        if isHovered { return Color(nsColor: .controlBackgroundColor).opacity(0.9) }
         return .clear
     }
 
@@ -513,10 +513,10 @@ struct SkillRow: View {
             .padding(.vertical, 1)
             .background(
                 Capsule().fill(accent
-                    ? Color.accentColor.opacity(0.12)
+                    ? Color.srAccent.opacity(0.12)
                     : Color(nsColor: .controlBackgroundColor))
             )
-            .foregroundStyle(accent ? Color.accentColor : Color.secondary)
+            .foregroundStyle(accent ? Color.srAccent : Color.secondary)
     }
 
     private func loadTree() {
@@ -621,8 +621,8 @@ struct DirNodeView: View {
     }
 
     private var rowBackground: Color {
-        if isContextTarget { return Color.accentColor.opacity(0.18) }
-        if isHovered { return Color(nsColor: .controlBackgroundColor).opacity(0.8) }
+        if isContextTarget { return Color.srAccentSoft }
+        if isHovered { return Color(nsColor: .controlBackgroundColor).opacity(0.9) }
         return .clear
     }
 }
@@ -656,8 +656,8 @@ struct FileRowView: View {
                         .font(.system(size: 8))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 0.5)
-                        .background(Capsule().fill(Color.accentColor.opacity(0.15)))
-                        .foregroundStyle(Color.accentColor)
+                        .background(Capsule().fill(Color.srAccent.opacity(0.15)))
+                        .foregroundStyle(Color.srAccent)
                 }
                 Spacer(minLength: 0)
                 if !node.sizeHuman.isEmpty {
@@ -691,9 +691,9 @@ struct FileRowView: View {
     }
 
     private var rowBackground: Color {
-        if isContextTarget { return Color.accentColor.opacity(0.18) }
-        if isActive { return Color.accentColor.opacity(0.12) }
-        if isHovered { return Color(nsColor: .controlBackgroundColor).opacity(0.8) }
+        if isContextTarget { return Color.srAccentSoft }
+        if isActive { return Color.srAccentSoft }
+        if isHovered { return Color(nsColor: .controlBackgroundColor).opacity(0.9) }
         return .clear
     }
 }
@@ -744,7 +744,7 @@ struct SearchResultList: View {
                             .buttonStyle(.plain)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
-                                    .fill(Color.accentColor.opacity(0.06))
+                                    .fill(Color.srAccent.opacity(0.06))
                             )
                         }
                     }
@@ -785,7 +785,7 @@ struct TocView: View {
                             Text(item.text)
                                 .font(.system(size: 12))
                                 .lineLimit(1)
-                                .foregroundStyle(isActive(item) ? Color.accentColor : Color.secondary)
+                                .foregroundStyle(isActive(item) ? Color.srAccent : Color.secondary)
                                 .padding(.leading, leading(item.level))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, 3)
@@ -795,7 +795,7 @@ struct TocView: View {
                         .background(
                             HStack(spacing: 0) {
                                 RoundedRectangle(cornerRadius: 1)
-                                    .fill(isActive(item) ? Color.accentColor : .clear)
+                                    .fill(isActive(item) ? Color.srAccent : .clear)
                                     .frame(width: 2)
                                 Spacer()
                             }
@@ -835,7 +835,7 @@ struct ToastView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 7)
                 .background(
-                    Capsule().fill(state.toastIsError ? Color.accentColor : Color.black.opacity(0.78))
+                    Capsule().fill(state.toastIsError ? Color(nsColor: .systemRed) : Color.black.opacity(0.78))
                 )
                 .padding(.bottom, 20)
                 .transition(.move(edge: .bottom).combined(with: .opacity))

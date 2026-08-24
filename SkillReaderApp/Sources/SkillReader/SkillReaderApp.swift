@@ -1,5 +1,26 @@
 import SwiftUI
 
+// MARK: - 品牌强调色（现代靛蓝，深浅模式自动适配）
+
+extension Color {
+    /// 品牌强调色：浅色 #4F46E5 / 深色 #818CF8（跟随系统外观）
+    static let srAccent = Color(nsColor: NSColor(name: nil) { appearance in
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return isDark
+            ? NSColor(srgbRed: 0.506, green: 0.549, blue: 0.973, alpha: 1)   // #818CF8
+            : NSColor(srgbRed: 0.310, green: 0.275, blue: 0.898, alpha: 1)   // #4F46E5
+    })
+    /// 强调色柔和底色（选中 / 高亮背景）
+    static let srAccentSoft = Color(nsColor: NSColor(name: nil) { appearance in
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return isDark
+            ? NSColor(srgbRed: 0.51, green: 0.55, blue: 0.97, alpha: 0.16)
+            : NSColor(srgbRed: 0.31, green: 0.28, blue: 0.90, alpha: 0.10)
+    })
+    /// 操作成功 / 已安装等状态绿
+    static let srSuccess = Color(nsColor: .systemGreen)
+}
+
 @main
 struct SkillReaderApp: App {
     @StateObject private var state = AppState()
@@ -18,18 +39,8 @@ struct SkillReaderApp: App {
 
     var body: some Scene {
         WindowGroup("Skill Reader") {
-            if CommandLine.arguments.contains("--render-smoke") {
-                // smoke 模式：不创建 ContentView（避免与测试 WebView 冲突）
-                EmptyView().frame(width: 1, height: 1)
-            } else if state.needsSetup {
-                AgentSetupView()
-                    .environmentObject(state)
-                    .frame(minWidth: 780, minHeight: 560)
-            } else {
-                ContentView()
-                    .environmentObject(state)
-                    .frame(minWidth: 860, minHeight: 560)
-            }
+            rootView
+                .tint(Color.srAccent)
         }
         .windowResizability(.contentMinSize)
         .defaultPosition(.center)
@@ -63,6 +74,22 @@ struct SkillReaderApp: App {
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
             }
+        }
+    }
+
+    @ViewBuilder
+    private var rootView: some View {
+        if CommandLine.arguments.contains("--render-smoke") {
+            // smoke 模式：不创建 ContentView（避免与测试 WebView 冲突）
+            EmptyView().frame(width: 1, height: 1)
+        } else if state.needsSetup {
+            AgentSetupView()
+                .environmentObject(state)
+                .frame(minWidth: 780, minHeight: 560)
+        } else {
+            ContentView()
+                .environmentObject(state)
+                .frame(minWidth: 860, minHeight: 560)
         }
     }
 }
