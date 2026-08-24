@@ -72,12 +72,25 @@ struct AgentProfile: Identifiable, Codable, Equatable {
         detected = AgentProfile.detect(paths: [skillPath] + extraSkillPaths)
     }
 
-    /// 强安装探测：任一 installProbe 路径存在即视为真正安装（目录或 .app 包），
+    /// 强安装探测：任一 installProbe 命中即视为真正安装。
+    /// - 普通路径：文件/目录存在（目录或 .app 包）。
+    /// - `cmd:<name>`：该命令在 PATH 中可用（用 `which` 探测），适合没有固定目录、只装了 CLI 的 Agent（如 Grok）。
     /// 比「仅 skills 子目录存在」更可靠，可区分真安装 / 残留空文件夹 / 手建目录。
     var isInstalled: Bool {
         let fm = FileManager.default
         return installProbes.contains { raw in
-            fm.fileExists(atPath: (raw as NSString).expandingTildeInPath)
+            if raw.hasPrefix("cmd:") {
+                let name = String(raw.dropFirst(4))
+                let pipe = Process()
+                pipe.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+                pipe.arguments = [name]
+                pipe.standardOutput = Pipe()
+                pipe.standardError = Pipe()
+                try? pipe.run()
+                pipe.waitUntilExit()
+                return pipe.terminationStatus == 0
+            }
+            return fm.fileExists(atPath: (raw as NSString).expandingTildeInPath)
         }
     }
 
@@ -151,7 +164,7 @@ final class AgentRegistry: ObservableObject {
                          installProbes: [p(".gemini")], skillPath: p(".gemini/skills")),
             AgentProfile(id: "grok", name: "Grok Build", vendor: "xAI", iconName: "bolt.fill",
                          logo: "grok", vendorUrl: "https://grok.com",
-                         installProbes: [p(".grok")], skillPath: p(".grok/skills")),
+                         installProbes: ["cmd:grok", p(".grok/auth.json")], skillPath: p(".agents/skills")),
             // ── 国产（GUI 类除配置目录外，同时探测 .app 包）──
             AgentProfile(id: "workbuddy", name: "WorkBuddy", vendor: "腾讯", iconName: "bubble.left.and.text.bubble.right",
                          logo: "workbuddy", vendorUrl: "https://www.workbuddy.cn",
@@ -171,7 +184,8 @@ final class AgentRegistry: ObservableObject {
                          skillPath: p(".codebuddy/skills")),
             AgentProfile(id: "kimi-code", name: "Kimi Code", vendor: "月之暗面", iconName: "moon.stars",
                          logo: "kimi", vendorUrl: "https://kimi.moonshot.cn",
-                         installProbes: [p(".kimi")], skillPath: p(".kimi/skills")),
+                         installProbes: [p(".kimi-code"), p(".kimi-code/bin/kimi")], skillPath: p(".kimi-code/skills"),
+                         extraSkillPaths: [p(".agents/skills")]),
         ]
     }
 
