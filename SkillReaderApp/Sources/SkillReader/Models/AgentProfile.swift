@@ -190,7 +190,16 @@ final class AgentRegistry: ObservableObject {
         guard FileManager.default.fileExists(atPath: configPath) else { return nil }
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
               let arr = try? JSONDecoder().decode([AgentProfile].self, from: data) else { return nil }
-        return arr
+        // 旧配置（升级前写入）可能缺少 installProbes 字段，加载后用内置种子补齐，
+        // 避免「已安装」强探测失效、所有内置 Agent 全掉进候选区。
+        // 仅对内置 Agent 按 id 补 installProbes；自定义 Agent 保持原样。
+        let seedProbes = Dictionary(uniqueKeysWithValues: AgentRegistry.candidates().map { ($0.id, $0.installProbes) })
+        return arr.map { agent in
+            guard !agent.isCustom, let probes = seedProbes[agent.id], !probes.isEmpty else { return agent }
+            var a = agent
+            if a.installProbes.isEmpty { a.installProbes = probes }
+            return a
+        }
     }
 
     /// id -> 显示名，供 SkillStore 在扫描 ~/.agent/skills 时给 root 打标签
