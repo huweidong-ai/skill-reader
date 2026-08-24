@@ -686,14 +686,10 @@ enum AgentLogo {
         NSRect(x: 0, y: 0, width: target, height: target).fill()
         let ctx = NSGraphicsContext.current?.cgContext
         ctx?.interpolationQuality = .high
-        // 源图坐标 y 轴翻转，按 bounding box 截取并绘制到居中位置
+        // 按 bounding box 裁剪出内容（坐标系与 CGContext 一致，无需翻转），居中绘制
         let cropRect = NSRect(x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(contentW), height: CGFloat(contentH))
         if let cropped = cg.cropping(to: cropRect) {
-            ctx?.saveGState()
-            ctx?.translateBy(x: 0, y: target)
-            ctx?.scaleBy(x: 1, y: -1)
             ctx?.draw(cropped, in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH))
-            ctx?.restoreGState()
         }
         out.unlockFocus()
         out.isTemplate = false
