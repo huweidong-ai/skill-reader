@@ -26,6 +26,90 @@ struct ContentView: View {
         }
         .overlay(alignment: .bottom) { ToastView() }
         .onExitCommand { state.backToEntry() }
+        .sheet(isPresented: Binding(
+            get: { state.distributeSkillName != nil },
+            set: { if !$0 { state.distributeSkillName = nil } }
+        )) { DistributeSheet() }
+    }
+}
+
+// MARK: - 分发到平台（skill 互通）
+
+struct DistributeSheet: View {
+    @EnvironmentObject var state: AppState
+
+    private var platforms: [AgentProfile] {
+        AgentRegistry.shared.agents.filter { $0.enabled }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("分发到平台")
+                .font(.headline)
+
+            if let name = state.distributeSkillName {
+                Text("把「\(name)」以符号链接同步到以下 Agent 的 skills 目录。链接即同源：改中心库，各平台即时生效。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    if platforms.isEmpty {
+                        Text("尚未纳入任何 Agent。请先在「配置 Agent」中勾选要管理的平台。")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                            .padding(.vertical, 8)
+                    } else {
+                        ForEach(platforms) { agent in
+                            Toggle(isOn: platformBinding(for: agent.id)) {
+                                HStack(spacing: 8) {
+                                    AgentIcon(agent: agent)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(agent.name)
+                                            .font(.system(size: 12, weight: .medium))
+                                        Text((agent.skillPath as NSString).expandingTildeInPath)
+                                            .font(.system(size: 10, design: .monospaced))
+                                            .foregroundStyle(.tertiary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
+                                }
+                            }
+                            .toggleStyle(.checkbox)
+                        }
+                    }
+                }
+            }
+            .frame(height: 190)
+
+            HStack {
+                if state.distributePlatforms.isEmpty, state.distributeSkillName != nil {
+                    Text("不勾选任何平台 = 取消该 skill 的分发")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Button("取消") { state.distributeSkillName = nil }
+                    .keyboardShortcut(.escape, modifiers: [])
+                Button("保存并同步") { state.saveDistribution() }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(platforms.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
+    }
+
+    private func platformBinding(for id: String) -> Binding<Bool> {
+        Binding(
+            get: { state.distributePlatforms.contains(id) },
+            set: { on in
+                if on { state.distributePlatforms.insert(id) }
+                else { state.distributePlatforms.remove(id) }
+            }
+        )
     }
 }
 
@@ -148,6 +232,16 @@ struct SidebarView: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .help("刷新技能列表")
+
+                Button {
+                    state.syncDistribution()
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("同步：把中心库 skill 分发到已启用平台")
 
                 Button {
                     let panel = NSOpenPanel()
@@ -326,6 +420,8 @@ struct SkillRow: View {
                     Button("移入废纸篓") { state.trashItem(skill: skill, rel: nil) }
                     Divider()
                     Button("打开访达") { state.revealItem(skill: skill, rel: nil) }
+                    Divider()
+                    Button("互通：复制到中心库并分发…") { state.copySkillToLibrary(skill) }
                 }
             } else {
                 Button {
@@ -379,6 +475,8 @@ struct SkillRow: View {
                     Button("移入废纸篓") { state.trashItem(skill: skill, rel: nil) }
                     Divider()
                     Button("打开访达") { state.revealItem(skill: skill, rel: nil) }
+                    Divider()
+                    Button("互通：复制到中心库并分发…") { state.copySkillToLibrary(skill) }
                 }
 
                 if isExpanded {

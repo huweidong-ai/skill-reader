@@ -269,6 +269,69 @@ enum SelfTest {
             try? FileManager.default.removeItem(atPath: tmp)
         }
 
+        // ---- Skill 分发引擎（临时目录，不污染真实 ~/.agent）----
+        do {
+            let base = NSTemporaryDirectory() + "skilldist-test-\(UUID().uuidString)"
+            let fm = FileManager.default
+            try? fm.createDirectory(atPath: base, withIntermediateDirectories: true)
+            defer { try? fm.removeItem(atPath: base) }
+
+            let lib = (base as NSString).appendingPathComponent("library")
+            let p1 = (base as NSString).appendingPathComponent("platformA")   // Claude Code 模拟
+            let p2 = (base as NSString).appendingPathComponent("platformB")   // OpenClaw 模拟
+
+            // 中心库建两个 skill：skill-a（含 SKILL.md）、skill-b
+            let a = (lib as NSString).appendingPathComponent("skill-a")
+            try? fm.createDirectory(atPath: (a as NSString).appendingPathComponent("scripts"),
+                                    withIntermediateDirectories: true)
+            try? "# Skill A\n".write(toFile: (a as NSString).appendingPathComponent("SKILL.md"),
+                                     atomically: true, encoding: .utf8)
+            try? "print(1)".write(toFile: (a as NSString).appendingPathComponent("scripts/tool.py"),
+                                  atomically: true, encoding: .utf8)
+            let b = (lib as NSString).appendingPathComponent("skill-b")
+            try? fm.createDirectory(atPath: b, withIntermediateDirectories: true)
+            try? "# Skill B\n".write(toFile: (b as NSString).appendingPathComponent("SKILL.md"),
+                                     atomically: true, encoding: .utf8)
+
+            // 平台目录里已有「用户自装」的普通目录，分发器绝不能动它
+            let userOwned = (p1 as NSString).appendingPathComponent("user-skill")
+            try? fm.createDirectory(atPath: userOwned, withIntermediateDirectories: true)
+
+            let config = SkillDistributor.Config(skills: [
+                "skill-a": ["claude", "openclaw"],
+                "skill-b": ["claude"],
+            ])
+            let dirs = ["claude": p1, "openclaw": p2]
+
+            // 首次同步：建 3 个链接
+            let n1 = SkillDistributor.sync(library: lib, platformDirs: dirs, config: config)
+            check(n1 == 3, "dist: first sync builds 3 links (got \(n1))")
+            check(fm.fileExists(atPath: (p1 as NSString).appendingPathComponent("skill-a")), "dist: skill-a -> p1")
+            check(fm.fileExists(atPath: (p2 as NSString).appendingPathComponent("skill-a")), "dist: skill-a -> p2")
+            check(fm.fileExists(atPath: (p1 as NSString).appendingPathComponent("skill-b")), "dist: skill-b -> p1")
+
+            // 链接确实指向中心库（同源）
+            let destA = try? fm.destinationOfSymbolicLink(atPath: (p1 as NSString).appendingPathComponent("skill-a"))
+            check(destA?.hasSuffix("/library/skill-a") == true, "dist: link target is library (got \(destA ?? "nil"))")
+
+            // 用户自装的 skill 未被清理
+            check(fm.fileExists(atPath: userOwned), "dist: user-owned skill untouched")
+
+            // 幂等：再次同步不炸、不重复建
+            let n2 = SkillDistributor.sync(library: lib, platformDirs: dirs, config: config)
+            check(n2 == 3, "dist: re-sync idempotent (got \(n2))")
+
+            // 移除分发：skill-b 不再分发
+            var cfg2 = config
+            cfg2.skills["skill-b"] = nil
+            let n3 = SkillDistributor.sync(library: lib, platformDirs: dirs, config: cfg2)
+            check(n3 == 2, "dist: after removal builds 2 links (got \(n3))")
+            check(!fm.fileExists(atPath: (p1 as NSString).appendingPathComponent("skill-b")), "dist: removed link gone")
+
+            // 用户自装 skill 在二次清理后仍完好
+            check(fm.fileExists(atPath: userOwned), "dist: user-owned skill survives re-sync")
+        }
+
         print("-----------------------------")
         print("SelfTest: \(passed) passed, \(failed) failed")
         return failed == 0 ? 0 : 1

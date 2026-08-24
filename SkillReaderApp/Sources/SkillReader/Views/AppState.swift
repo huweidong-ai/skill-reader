@@ -56,13 +56,21 @@ final class AppState: ObservableObject {
     // ---- 首次 Agent 配置 ----
     @Published var needsSetup: Bool = false
 
+    // ---- Skill 互通（分发到平台）----
+    @Published var distributeSkillName: String? = nil   // nil = sheet 关闭；非 nil = 正在配置该 skill
+    @Published var distributePlatforms: Set<String> = [] // sheet 中勾选的平台 id
+
     // MARK: - 初始化
 
     init() {
+        // 确保中心库目录存在（作为阅读器 root 的挂载点）
+        _ = SkillDistributor.shared.ensureLibrary()
         // 是否需要在进入阅读器前先做 Agent 配置（无配置 或 没有任何 Agent 被纳入管理）
         needsSetup = AgentRegistry.shared.needsSetup
         store.loadRoots()
         reloadSkills()
+        // skill 互通：启动时全量同步一次分发挂载（幂等，纯文件 IO）
+        _ = SkillDistributor.shared.syncAll()
     }
 
     // MARK: - 首次 Agent 配置
@@ -88,6 +96,72 @@ final class AppState: ObservableObject {
         needsSetup = false
         store.loadRoots()
         reloadSkills()
+    }
+
+    // MARK: - Skill 互通（分发到平台）
+
+    /// 当前 skill 是否位于中心库（只有中心库的 skill 能分发）
+    var isSkillInLibrary: Bool {
+        guard let root = store.currentRootPath else { return false }
+        let lib = SkillDistributor.shared.libraryDir
+        let rootReal = (root as NSString).standardizingPath
+        let libReal = (lib as NSString).standardizingPath
+        return rootReal == libReal
+    }
+
+    /// 打开「分发到平台」sheet，预填当前已启用平台
+    func openDistribute(for skill: Skill) {
+        distributeSkillName = skill.name
+        distributePlatforms = Set(SkillDistributor.shared.enabledPlatforms(for: skill.name))
+    }
+
+    /// 把任意 root 下的 skill 复制进中心库，成功后切到中心库并打开分发 sheet
+    func copySkillToLibrary(_ skill: Skill) {
+        // 已在中心库：无需复制，直接打开分发
+        if isSkillInLibrary {
+            openDistribute(for: skill)
+            return
+        }
+        guard let root = store.currentRootPath else { return }
+        let src = (root as NSString).appendingPathComponent(skill.path)
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: src, isDirectory: &isDir) else {
+            flashToast("复制到中心库失败", isError: true)
+            return
+        }
+        guard SkillDistributor.shared.importToLibrary(from: src, skillName: skill.name) != nil else {
+            flashToast("复制到中心库失败", isError: true)
+            return
+        }
+        // 切到中心库查看，并打开分发 sheet
+        store.loadRoots()
+        if let libRoot = store.roots.first(where: { $0.path == SkillDistributor.shared.libraryDir }) {
+            switchRoot(id: libRoot.id)
+        }
+        reloadSkills()
+        openDistribute(for: skill)
+        flashToast("已复制到中心库")
+    }
+
+    /// 保存分发配置并立即同步
+    func saveDistribution() {
+        guard let name = distributeSkillName else { return }
+        var config = SkillDistributor.shared.loadConfig()
+        if distributePlatforms.isEmpty {
+            config.skills[name] = nil
+        } else {
+            config.skills[name] = distributePlatforms.sorted()
+        }
+        SkillDistributor.shared.saveConfig(config)
+        let n = SkillDistributor.shared.syncAll()
+        distributeSkillName = nil
+        flashToast(n > 0 ? "已分发到 \(n) 个平台" : "已保存（未分发到任何平台）")
+    }
+
+    /// 手动全量同步（侧栏按钮）
+    func syncDistribution() {
+        let n = SkillDistributor.shared.syncAll()
+        flashToast(n > 0 ? "已同步 \(n) 个平台挂载" : "没有待分发的 skill")
     }
 
     // MARK: - 技能列表

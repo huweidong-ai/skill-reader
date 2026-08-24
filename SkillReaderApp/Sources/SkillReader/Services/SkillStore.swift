@@ -54,6 +54,10 @@ final class SkillStore: ObservableObject {
             }
         }
 
+        // 0b. ~/.agent/library 中心库（skill 互通分发源）：库内 skill 可分发到各平台
+        let library = (home as NSString).appendingPathComponent(".agent/library")
+        addRoot(&roots, &seen, library, label: "中心库", idPrefix: "l")
+
         // 1. 兜底：尚未配置 ~/.agent 时，沿用原逻辑（保证首次也有数据可读）
         if roots.isEmpty {
             // 1a. 用户级 skills
