@@ -279,6 +279,7 @@ enum SelfTest {
             let lib = (base as NSString).appendingPathComponent("library")
             let p1 = (base as NSString).appendingPathComponent("platformA")   // Claude Code 模拟
             let p2 = (base as NSString).appendingPathComponent("platformB")   // OpenClaw 模拟
+            let p3 = (base as NSString).appendingPathComponent("platformC")   // 未安装平台模拟（目录不存在）
 
             // 中心库建两个 skill：skill-a（含 SKILL.md）、skill-b
             let a = (lib as NSString).appendingPathComponent("skill-a")
@@ -296,19 +297,30 @@ enum SelfTest {
             // 平台目录里已有「用户自装」的普通目录，分发器绝不能动它
             let userOwned = (p1 as NSString).appendingPathComponent("user-skill")
             try? fm.createDirectory(atPath: userOwned, withIntermediateDirectories: true)
+            // p1、p2 存在（已安装）；p3 目录不存在（未安装）
+            try? fm.createDirectory(atPath: p1, withIntermediateDirectories: true)
+            try? fm.createDirectory(atPath: p2, withIntermediateDirectories: true)
 
             let config = SkillDistributor.Config(skills: [
-                "skill-a": ["claude", "openclaw"],
+                "skill-a": ["claude", "openclaw", "not-installed"],
                 "skill-b": ["claude"],
             ])
-            let dirs = ["claude": p1, "openclaw": p2]
+            // not-installed 平台目录不存在 → 应跳过且不创建目录
+            let dirs: [String: [String]] = [
+                "claude": [p1],
+                "openclaw": [p2],
+                "not-installed": [(base as NSString).appendingPathComponent("ghost")],
+            ]
 
-            // 首次同步：建 3 个链接
+            // 首次同步：3 个链接（not-installed 跳过）
             let n1 = SkillDistributor.sync(library: lib, platformDirs: dirs, config: config)
-            check(n1 == 3, "dist: first sync builds 3 links (got \(n1))")
+            check(n1 == 3, "dist: first sync builds 3 links, skips not-installed (got \(n1))")
             check(fm.fileExists(atPath: (p1 as NSString).appendingPathComponent("skill-a")), "dist: skill-a -> p1")
             check(fm.fileExists(atPath: (p2 as NSString).appendingPathComponent("skill-a")), "dist: skill-a -> p2")
             check(fm.fileExists(atPath: (p1 as NSString).appendingPathComponent("skill-b")), "dist: skill-b -> p1")
+            // 关键：未安装平台目录不应被创建
+            check(!fm.fileExists(atPath: (base as NSString).appendingPathComponent("ghost")),
+                  "dist: not-installed platform dir NOT created")
 
             // 链接确实指向中心库（同源）
             let destA = try? fm.destinationOfSymbolicLink(atPath: (p1 as NSString).appendingPathComponent("skill-a"))
@@ -330,6 +342,22 @@ enum SelfTest {
 
             // 用户自装 skill 在二次清理后仍完好
             check(fm.fileExists(atPath: userOwned), "dist: user-owned skill survives re-sync")
+
+            // OpenClaw 分发目标走 extra 路径而非 skillPath
+            let oc = AgentProfile(id: "openclaw", name: "OpenClaw", vendor: "开源", iconName: "shippingbox",
+                                  skillPath: (base as NSString).appendingPathComponent("oc-core"),
+                                  extraSkillPaths: [(base as NSString).appendingPathComponent("oc-workspace")])
+            try? fm.createDirectory(atPath: (base as NSString).appendingPathComponent("oc-workspace"),
+                                    withIntermediateDirectories: true)
+            check(oc.distributionPaths == [(base as NSString).appendingPathComponent("oc-workspace")],
+                  "dist: openclaw targets extra path, not skillPath (got \(oc.distributionPaths))")
+            // 常规 Agent 分发目标 = skillPath
+            let cc = AgentProfile(id: "claude-code", name: "Claude Code", vendor: "Anthropic", iconName: "brain",
+                                  skillPath: (base as NSString).appendingPathComponent("cc-skills"))
+            try? fm.createDirectory(atPath: (base as NSString).appendingPathComponent("cc-skills"),
+                                    withIntermediateDirectories: true)
+            check(cc.distributionPaths == [(base as NSString).appendingPathComponent("cc-skills")],
+                  "dist: normal agent targets skillPath (got \(cc.distributionPaths))")
         }
 
         print("-----------------------------")

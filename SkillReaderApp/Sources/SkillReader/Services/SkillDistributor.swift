@@ -67,11 +67,12 @@ final class SkillDistributor {
     /// 全量重建：对每个已纳入管理的 Agent 平台目录，
     /// 先清掉「我们管理的、指向中心库的」symlink，再按配置重建。
     /// 返回本次建立的链接数。
+    /// 分发目标 = Agent.distributionPaths（实际存在才分发；不存在 = 未安装，跳过且不创建目录）。
     @discardableResult
     func syncAll() -> Int {
         let platforms = AgentRegistry.shared.agents.filter { $0.enabled }
         let platformDirs = Dictionary(uniqueKeysWithValues: platforms.map {
-            ($0.id, ($0.skillPath as NSString).expandingTildeInPath)
+            ($0.id, $0.distributionPaths)
         })
         return Self.sync(library: libraryDir, platformDirs: platformDirs, config: loadConfig())
     }
@@ -79,12 +80,15 @@ final class SkillDistributor {
     /// 核心同步逻辑（纯文件 IO，可注入路径便于测试）。
     /// - 清理：各平台目录中指向中心库的旧 symlink（幂等，不碰用户自装的 skill）
     /// - 重建：按配置为每个 skill 建 `平台目录/<skill名>` → `中心库/<skill名>`
-    static func sync(library: String, platformDirs: [String: String], config: Config) -> Int {
+    /// 平台目录不存在时直接跳过（未安装该 Agent，不做任何创建）。
+    static func sync(library: String, platformDirs: [String: [String]], config: Config) -> Int {
         let fm = FileManager.default
 
         // 1. 清理旧链接
-        for dir in platformDirs.values {
-            cleanupManagedLinks(in: dir, library: library, fm: fm)
+        for dirs in platformDirs.values {
+            for dir in dirs {
+                cleanupManagedLinks(in: dir, library: library, fm: fm)
+            }
         }
 
         // 2. 按配置重建
@@ -94,14 +98,18 @@ final class SkillDistributor {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: source, isDirectory: &isDir), isDir.boolValue else { continue }
             for pid in platformIDs {
-                guard let dir = platformDirs[pid] else { continue }
-                try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
-                let link = (dir as NSString).appendingPathComponent(skillName)
-                try? fm.removeItem(atPath: link)
-                do {
-                    try fm.createSymbolicLink(atPath: link, withDestinationPath: source)
-                    count += 1
-                } catch { /* 平台目录不可写等，跳过 */ }
+                guard let dirs = platformDirs[pid] else { continue }
+                for dir in dirs {
+                    var targetIsDir: ObjCBool = false
+                    // 平台目录不存在 = 未安装，跳过且不创建
+                    guard fm.fileExists(atPath: dir, isDirectory: &targetIsDir), targetIsDir.boolValue else { continue }
+                    let link = (dir as NSString).appendingPathComponent(skillName)
+                    try? fm.removeItem(atPath: link)
+                    do {
+                        try fm.createSymbolicLink(atPath: link, withDestinationPath: source)
+                        count += 1
+                    } catch { /* 平台目录不可写等，跳过 */ }
+                }
             }
         }
         return count

@@ -118,6 +118,26 @@ struct AgentProfile: Identifiable, Codable, Equatable {
         // 过滤掉不存在的，避免 UI 噪音
         return result.filter { fm.fileExists(atPath: $0) }
     }
+
+    /// 互通分发的目标目录（实际存在才分发；不存在 = 未安装该 Agent，跳过）。
+    /// - 常规 Agent：skillPath（如 ~/.claude/skills）
+    /// - OpenClaw：真实 skill 存放/读取于 extraSkillPaths（~/.openclaw/workspace/skills），
+    ///   其 skillPath（~/.openclaw/skills）默认不被读取，故分发走 extra 路径。
+    var distributionPaths: [String] {
+        let fm = FileManager.default
+        let candidates = id == "openclaw" ? extraSkillPaths : [skillPath] + extraSkillPaths
+        var seen = Set<String>()
+        var result: [String] = []
+        for raw in candidates {
+            let path = (raw as NSString).expandingTildeInPath
+            let real = (path as NSString).standardizingPath
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue,
+                  seen.insert(real).inserted else { continue }
+            result.append(path)
+        }
+        return result
+    }
 }
 
 // MARK: - Agent 注册中心（读写 ~/.agent 集中管理）
