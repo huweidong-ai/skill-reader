@@ -74,24 +74,33 @@ struct AgentProfile: Identifiable, Codable, Equatable {
 
     /// 强安装探测：任一 installProbe 命中即视为真正安装。
     /// - 普通路径：文件/目录存在（目录或 .app 包）。
-    /// - `cmd:<name>`：该命令在 PATH 中可用（用 `which` 探测），适合没有固定目录、只装了 CLI 的 Agent（如 Grok）。
+    /// - `cmd:<name>`：该命令在 PATH 中可用——**仅做文件存在检查**（遍历 $PATH 目录找可执行文件），
+    ///   严禁在渲染期 spawn 子进程（which/Process），否则 AttributeGraph 布局期阻塞会直接崩溃。
     /// 比「仅 skills 子目录存在」更可靠，可区分真安装 / 残留空文件夹 / 手建目录。
+    /// 纯文件 IO，无进程 spawn，SwiftUI body 渲染期调用安全。
     var isInstalled: Bool {
         let fm = FileManager.default
         return installProbes.contains { raw in
             if raw.hasPrefix("cmd:") {
-                let name = String(raw.dropFirst(4))
-                let pipe = Process()
-                pipe.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-                pipe.arguments = [name]
-                pipe.standardOutput = Pipe()
-                pipe.standardError = Pipe()
-                try? pipe.run()
-                pipe.waitUntilExit()
-                return pipe.terminationStatus == 0
+                return Self.commandExists(String(raw.dropFirst(4)))
             }
             return fm.fileExists(atPath: (raw as NSString).expandingTildeInPath)
         }
+    }
+
+    /// 纯文件检查：遍历 PATH 环境变量里的目录，看 <name> 是否作为可执行文件存在。
+    /// 不 spawn 任何进程，渲染期安全。
+    private static func commandExists(_ name: String) -> Bool {
+        guard let pathEnv = ProcessInfo.processInfo.environment["PATH"] else { return false }
+        let fm = FileManager.default
+        for dir in pathEnv.split(separator: ":") {
+            let candidate = (dir as NSString).appendingPathComponent(name)
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: candidate, isDirectory: &isDir), !isDir.boolValue {
+                if fm.isExecutableFile(atPath: candidate) { return true }
+            }
+        }
+        return false
     }
 
     /// 全部 skill 目录（核心 + 额外），已展开 ~；重复路径去重
