@@ -5,7 +5,7 @@ set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 NAME="SkillReader"
-TARGET="${1:-$HOME/Applications/$NAME.app}"
+TARGET="${1:-/Applications/$NAME.app}"
 APP_VERSION="${APP_VERSION:-1.0}"
 BUNDLE_ID="${BUNDLE_ID:-com.hwd.skillreader}"
 
