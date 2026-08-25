@@ -881,17 +881,31 @@ struct TocView: View {
 struct ToastView: View {
     @EnvironmentObject var state: AppState
 
+    /// 成功 / 提示态用绿色，错误态用红色；两者均为完全不透明填充，
+    /// 在浅色与深色（含纯黑）背景下都清晰可读，不再出现「黑底黑 toast 看不见」的问题。
+    private var fill: Color {
+        state.toastIsError ? Color(nsColor: .systemRed) : Color.srSuccess
+    }
+
     var body: some View {
         if let msg = state.toastMessage {
             Text(msg)
-                .font(.system(size: 12))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14)
-                .padding(.vertical, 7)
+                .padding(.vertical, 8)
                 .background(
-                    Capsule().fill(state.toastIsError ? Color(nsColor: .systemRed) : Color.black.opacity(0.78))
+                    Capsule()
+                        .fill(fill)
+                        .shadow(color: .black.opacity(0.28), radius: 8, x: 0, y: 3)
                 )
-                .padding(.bottom, 20)
+                // 细描边高光，让 toast 在任意背景上都能与底色分离
+                .overlay(
+                    Capsule()
+                        .strokeBorder(.white.opacity(0.20), lineWidth: 0.5)
+                )
+                // 抬高位置，避免紧贴窗口底边
+                .padding(.bottom, 56)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
