@@ -24,7 +24,7 @@ struct ContentView: View {
                     .frame(minWidth: 180, idealWidth: 220, maxWidth: 280)
             }
         }
-        .overlay(alignment: .bottom) { ToastView() }
+        .overlay(alignment: .top) { ToastView() }
         .onExitCommand { state.backToEntry() }
         .sheet(isPresented: Binding(
             get: { state.distributeSkillName != nil },
@@ -904,9 +904,9 @@ struct ToastView: View {
                     Capsule()
                         .strokeBorder(.white.opacity(0.20), lineWidth: 0.5)
                 )
-                // 抬高位置，避免紧贴窗口底边
-                .padding(.bottom, 56)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                // 移到窗口顶部区域，避开底边；留出间距使其不压住面包屑栏
+                .padding(.top, 56)
+                .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 }
