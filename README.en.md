@@ -19,11 +19,11 @@ A native macOS desktop app (SwiftUI + WKWebView). Double-click to launch — no 
 - Reading / source mode toggle (`⌘/`)
 - Global search over skill names / descriptions / content; reveal files in Finder
 
-**Share skills (Agent interop)**
-- `~/.agent/library` is the single source of truth; one-click "copy to library & distribute" pushes any Agent's skill to other Agents' skills dirs
-- Distribution via symbolic links: edit the library → every Agent sees it instantly, no data sync
-- "Distribute to platforms" panel to pick target Agents; top-bar "Sync" rebuilds distribution anytime
-- Safe by design: only cleans up links it created pointing to the library; never touches Agents' own skills
+**Share skills (Agent interop · single source of truth)**
+- `~/.agent/library` is the single source of truth. When an Agent is enabled, all its real skills are auto-"adopted" into the library and its folders replaced by symlinks to the library — the source Agent itself and every distributed Agent point at the same copy, so one edit updates all
+- Library entries are named `<ownerAgentId>__<skillName>` (e.g. `claude-code__ego-browser`) so same-named skills across Agents never collide
+- Or right-click a skill → "复制到中心库并分发…" to import manually and pick target Agents; top-bar "Sync" rebuilds distribution anytime
+- Before adoption the original folders are moved to `~/.agent/backups/<agentId>/` (recoverable); besides adoption the app only cleans up links it created pointing to the library, and never touches Agents' own skills
 
 ## Installation
 

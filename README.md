@@ -18,11 +18,11 @@ Markdown 渲染阅读；并让纳入管理的 skill 在多个 Agent（Claude Cod
 - 阅读 / 源码模式切换（`⌘/`）
 - 技能名/描述/内容全局搜索；一键在 Finder 中定位文件
 
-**共享 skills（Agent 互通）**
-- 以 `~/.agent/library` 为中心库（唯一真相源），把任意 Agent 的 skill 一键「复制到中心库并分发」到其他 Agent 的 skills 目录
-- 分发用符号链接实现：改中心库 = 所有 Agent 立即生效，无需同步数据
-- 「分发到平台」面板勾选目标 Agent，顶栏「同步」按钮随时重建分发
-- 安全约定：只清理「自己建的、指向中心库」的链接，绝不覆盖或删除各 Agent 自行安装的 skill
+**共享 skills（Agent 互通 · 单一真相源）**
+- 以 `~/.agent/library` 为中心库（唯一真相源）。纳入某 Agent 时，其全部真实 skill 自动「采纳」进中心库，原目录替换为指向中心库的 symlink——来源 Agent 自己、以及分发到的其它 Agent，全部指向同一份，改一处全局生效
+- 中心库条目以 `<ownerAgentId>__<skillName>` 命名（如 `claude-code__ego-browser`），跨 Agent 同名 skill 互不覆盖、各自独立分发
+- 也可右键某 skill → 「复制到中心库并分发…」手动导入并勾选目标 Agent；顶栏「同步」按钮随时重建分发
+- 采纳前原真实目录整体移入 `~/.agent/backups/<agentId>/` 可恢复；除采纳外，应用只清理「自己建的、指向中心库」的链接，绝不覆盖或删除各 Agent 自行安装的 skill
 
 ## 安装
 

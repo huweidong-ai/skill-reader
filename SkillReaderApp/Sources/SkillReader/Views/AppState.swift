@@ -100,6 +100,12 @@ final class AppState: ObservableObject {
         reloadSkills()
         // skill 互通：启动时全量同步一次分发挂载（幂等，纯文件 IO）
         _ = SkillDistributor.shared.syncAll()
+        // B 模式：为已纳入的 Agent 执行「采纳」（纳入即共享，单一真相源）。
+        // 幂等、带备份；新加入/新装的 skill 会自动被采纳。
+        for agent in AgentRegistry.shared.agents where agent.enabled {
+            _ = SkillDistributor.shared.adoptAgentToLibrary(agent)
+        }
+        _ = SkillDistributor.shared.syncAll()
         // 主题
         if let raw = UserDefaults.standard.string(forKey: "skillreader_theme"),
            let mode = ThemeMode(rawValue: raw) {
@@ -136,9 +142,14 @@ final class AppState: ObservableObject {
 
     // MARK: - 首次 Agent 配置
 
-    /// 完成配置：保存 Agent 列表、重建 ~/.agent 集中管理、切换进阅读器。
+    /// 完成配置：保存 Agent 列表、重建 ~/.agent 集中管理、执行采纳、切换进阅读器。
     func finishSetup(_ list: [AgentProfile]) {
         AgentRegistry.shared.save(list)
+        // B 模式：纳入即共享——为每个启用 Agent 采纳其真实 skills 到中心库
+        for agent in list where agent.enabled {
+            _ = SkillDistributor.shared.adoptAgentToLibrary(agent)
+        }
+        _ = SkillDistributor.shared.syncAll()
         enterReader()
     }
 
@@ -170,15 +181,30 @@ final class AppState: ObservableObject {
         return rootReal == libReal
     }
 
-    /// 打开「分发到平台」sheet，预填当前已启用平台
+    /// 打开「分发到平台」sheet，预填当前已启用平台。
+    /// `skill.name` 在中心库 root 下即 canonical（`<owner>__<skill>`），直接作为配置键。
     func openDistribute(for skill: Skill) {
         distributeSkillName = skill.name
         distributePlatforms = Set(SkillDistributor.shared.enabledPlatforms(for: skill.name))
     }
 
-    /// 把任意 root 下的 skill 复制进中心库，成功后切到中心库并打开分发 sheet
+    /// 当前 root 对应的 owner Agent id（用于中心库命名去重）；非 Agent 挂载则记 "imported"。
+    func ownerIdForCurrentRoot() -> String {
+        guard let root = store.currentRootPath else { return "imported" }
+        let mountStd = (AgentRegistry.shared.skillsMount as NSString).standardizingPath
+        let rootStd = (root as NSString).standardizingPath
+        guard rootStd.hasPrefix(mountStd + "/") else { return "imported" }
+        let rest = String(rootStd.dropFirst(mountStd.count + 1))
+        if let id = rest.components(separatedBy: "/").first,
+           AgentRegistry.shared.agents.contains(where: { $0.id == id }) {
+            return id
+        }
+        return "imported"
+    }
+
+    /// 把任意 root 下的 skill 复制进中心库（以 canonical 命名），成功后切到中心库并打开分发 sheet。
     func copySkillToLibrary(_ skill: Skill) {
-        // 已在中心库：无需复制，直接打开分发
+        // 已在中心库：无需复制（skill.name 已是 canonical），直接打开分发
         if isSkillInLibrary {
             openDistribute(for: skill)
             return
@@ -190,17 +216,22 @@ final class AppState: ObservableObject {
             flashToast("复制到中心库失败", isError: true)
             return
         }
-        guard SkillDistributor.shared.importToLibrary(from: src, skillName: skill.name) != nil else {
+        let owner = ownerIdForCurrentRoot()
+        let canonical = SkillDistributor.canonical(owner: owner, skill: skill.name)
+        guard SkillDistributor.shared.importToLibrary(from: src, skillName: canonical) != nil else {
             flashToast("复制到中心库失败", isError: true)
             return
         }
-        // 切到中心库查看，并打开分发 sheet
+        // 切到中心库查看，并打开分发 sheet（用 canonical 构造列表项）
         store.loadRoots()
         if let libRoot = store.roots.first(where: { $0.path == SkillDistributor.shared.libraryDir }) {
             switchRoot(id: libRoot.id)
         }
         reloadSkills()
-        openDistribute(for: skill)
+        let libSkill = Skill(name: canonical, path: canonical, kind: .package,
+                             entry: "SKILL.md", description: skill.description,
+                             stats: skill.stats, modified: skill.modified)
+        openDistribute(for: libSkill)
         flashToast("已复制到中心库")
     }
 

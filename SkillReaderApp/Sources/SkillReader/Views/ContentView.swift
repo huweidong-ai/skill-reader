@@ -48,7 +48,7 @@ struct DistributeSheet: View {
                 .font(.headline)
 
             if let name = state.distributeSkillName {
-                Text("把「\(name)」以符号链接同步到以下 Agent 的 skills 目录。链接即同源：改中心库，各平台即时生效。")
+                Text("把「\(SkillDistributor.linkBasename(for: name))」以符号链接同步到以下 Agent 的 skills 目录。链接即同源：改中心库，各平台即时生效。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }

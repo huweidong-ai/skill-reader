@@ -12,22 +12,42 @@
 
 ## 当前阶段：Agent 之间共享 skills
 
+### 架构决策（2026-08-25 确定）
+
+选定 **B 模式：彻底单一真相源（single source of truth）**。
+
+- 纳入某 Agent 时（`adoptAgentToLibrary`），把它所有真实 skill **导入中心库** `~/.agent/library`，
+  并把该 Agent 目录里的真实文件夹 **替换为指向中心库的 symlink**。
+  于是来源 Agent 自己、以及分发到的其它 Agent，**全部指向同一份文件**——改一处、全局生效。
+- 中心库条目命名 `<ownerAgentId>__<skillName>`（如 `claude-code__ego-browser`）：
+  跨 Agent 同名 skill 互不覆盖，各自独立分发。（已验证：你机器上 `ego-browser` 同时存在于 workbuddy 与 qoderwork，会分别成为 `workbuddy__ego-browser` / `qoderwork__ego-browser`。）
+- 分发到目标 Agent 的链接名仍是**干净 skill 名**（`ego-browser`），对 Agent 透明、不污染目录。
+- 采纳前，Agent 原真实目录整体移动到 `~/.agent/backups/<agentId>/` **可恢复，绝不删除**。
+- sync 清理时**保留 owner 自己的采纳链接**（指向 `library/<owner>__…`），避免重新同步后丢来源 Agent 的 skills。
+
+> 备选 A（来源 Agent 留原样、中心库仅作对外分享副本）被否决：A 下「改中心库」来源 Agent 不生效、改来源中心库不生效，存在两份漂移。
+> B 更「互通」，代价是来源 Agent 目录不再是普通目录（均为 symlink）。此代价已确认接受。
+
 ### 已具备的能力
 
 - **Agent 注册与挂载**：各 Agent 的 skills 目录通过 `~/.agent/skills/<agent-id>` 符号链接聚合，阅读器统一扫描、一处可读所有 Agent 的技能。
-- **中心库 + 配置**：`~/.agent/library` 为唯一真相源；`~/.agent/distribute.json` 记录「skill → 目标 Agent 列表」。
-- **符号链接分发引擎 `SkillDistributor`**：把 skill 复制进中心库 → 以 symlink 分发到各 Agent 的 skills 目录；改中心库即所有 Agent 立即生效，无需同步数据。
-- **安全清理**：只清理「自己建的、指向中心库」的链接，绝不覆盖或删除各 Agent 自装的 skill（纯文件 IO，不 spawn 进程）。
-- **UI 闭环**：右键某 skill →「复制到中心库并分发…」→ 勾选目标 Agent（分发到平台面板）→ 保存生效；顶栏「同步」按钮随时重建；启动自动 `syncAll`。
-- **自测保障**：数据层 79 项断言覆盖分发、不建目录、OpenClaw 路径、安全清理等。
+- **中心库 + 配置**：`~/.agent/library` 为唯一真相源；`~/.agent/distribute.json` 记录「canonical → 目标 Agent 列表」。
+- **符号链接分发引擎 `SkillDistributor`**：
+  - `adopt`：纳入即共享，真实目录 → 中心库 + symlink（带备份，幂等）。
+  - `sync`：按配置把 canonical 分发给目标 Agent 的 skills 目录（干净链接名）；owner 采纳链接不被清理。
+  - `importToLibrary`：任意 root 的 skill 以 canonical 命名导入中心库。
+- **安全清理**：只清理「自己建的、指向中心库」的链接，绝不覆盖/删除各 Agent 自装的 skill（纯文件 IO，不 spawn 进程）。
+- **UI 闭环**：右键某 skill →「复制到中心库并分发…」→ 勾选目标 Agent → 保存生效；顶栏「同步」按钮随时重建；启动自动 `syncAll` + 对已经纳入的 Agent 自动 `adopt`。
+- **自测保障**：数据层 92 项断言，含 B 模式采纳、跨 Agent 去重、owner 链接保留、分发干净链接名等。
 
 ### 把「共享」做成流畅产品能力（待完善）
 
-- [ ] **批量共享**：选中某 Agent 的全部 skills 一键进入中心库并分发，而非逐条复制
-- [ ] **状态总览**：中心库已有哪些 skill、各自共享给哪些 Agent，一处可见、可一键撤销
-- [ ] **冲突策略**：同名的 skill 跨 Agent 存在时如何导入（当前 `importToLibrary` 跳过已存在、不覆盖）
-- [ ] **纳入即共享**：探索「纳入某 Agent」时其 skills 自动对其他已纳管 Agent 可选共享的体验
-- [ ] **反向同步**：Agent 端自行修改后中心库如何感知（当前中心库为唯一真相源，单向分发）
+- [x] **冲突策略（B 模式）**：`<owner>__<skill>` 命名去重，跨 Agent 同名独立分发。
+- [x] **单一真相源（B 模式）**：纳入即共享，所有 Agent 指向同一份。
+- [ ] **批量共享**：选中某 Agent 的全部 skills 一键进入中心库并分发，而非逐条复制。
+- [ ] **状态总览**：中心库已有哪些 skill、各自共享给哪些 Agent，一处可见、可一键撤销。
+- [ ] **纳入即共享的开关**：当前纳入即自动 adopt；后续可加「仅挂载阅读 / 纳入并共享」两档。
+- [ ] **反向同步**：Agent 端自行修改中心库内的 skill，所有 Agent 立即生效（B 模式天然支持，无需额外逻辑；仅需在 UI 提供「在中心库内编辑」入口）。
 
 ---
 

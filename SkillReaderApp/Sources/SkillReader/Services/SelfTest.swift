@@ -360,6 +360,79 @@ enum SelfTest {
                   "dist: normal agent targets skillPath (got \(cc.distributionPaths))")
         }
 
+        // ---- Skill 互通：B 模式（单一真相源 / 采纳 / 去重 / owner 保留）----
+        do {
+            let fm = FileManager.default
+            let base = (NSTemporaryDirectory() as NSString)
+                .appendingPathComponent("sr_selftest_b_\(UUID().uuidString)")
+            try? fm.createDirectory(atPath: base, withIntermediateDirectories: true)
+            let lib = (base as NSString).appendingPathComponent("library")
+            let backup = (base as NSString).appendingPathComponent("backups")
+            let agentX = (base as NSString).appendingPathComponent("agentX-skills")
+            let agentY = (base as NSString).appendingPathComponent("agentY-skills")
+            let target = (base as NSString).appendingPathComponent("target-skills")
+            try? fm.createDirectory(atPath: agentX, withIntermediateDirectories: true)
+            try? fm.createDirectory(atPath: agentY, withIntermediateDirectories: true)
+            try? fm.createDirectory(atPath: target, withIntermediateDirectories: true)
+
+            func makeSkill(_ dir: String, _ name: String) {
+                let d = (dir as NSString).appendingPathComponent(name)
+                try? fm.createDirectory(atPath: d, withIntermediateDirectories: true)
+                try? "x".write(toFile: (d as NSString).appendingPathComponent("SKILL.md"),
+                               atomically: true, encoding: .utf8)
+            }
+            makeSkill(agentX, "skill-a")
+            makeSkill(agentX, "skill-b")
+            makeSkill(agentY, "skill-a")   // 同名，跨 Agent 重复
+
+            // 1) 采纳 agent X：真实目录 → 中心库 + symlink
+            let r1 = SkillDistributor.adopt(agentId: "x", skillDirs: [agentX],
+                                            library: lib, backupRoot: backup)
+            check(r1.imported == 2 && r1.linked == 2, "b: adopt X imported/linked 2 (got \(r1.imported)/\(r1.linked))")
+            check(fm.fileExists(atPath: (lib as NSString).appendingPathComponent("x__skill-a")),
+                  "b: library has canonical x__skill-a")
+            check(fm.fileExists(atPath: (lib as NSString).appendingPathComponent("x__skill-b")),
+                  "b: library has canonical x__skill-b")
+            // agentX 原目录变为 symlink 指向中心库
+            let linkAX = (agentX as NSString).appendingPathComponent("skill-a")
+            let destAX = (try? fm.destinationOfSymbolicLink(atPath: linkAX)) ?? ""
+            check(!destAX.isEmpty, "b: agentX/skill-a became symlink")
+            check(destAX.hasSuffix("x__skill-a"), "b: symlink points to canonical x__skill-a (got \(destAX))")
+            // 备份保留原始真实目录
+            check(fm.fileExists(atPath: ((backup as NSString).appendingPathComponent("x/skill-a") as NSString)
+                                    .appendingPathComponent("SKILL.md")),
+                  "b: backup keeps original skill-a/SKILL.md")
+
+            // 2) 再次采纳幂等：不重复导入/链接
+            let r2 = SkillDistributor.adopt(agentId: "x", skillDirs: [agentX],
+                                            library: lib, backupRoot: backup)
+            check(r2.imported == 0 && r2.linked == 0, "b: re-adopt idempotent (got \(r2.imported)/\(r2.linked))")
+
+            // 3) 跨 Agent 同名去重：Y 的 skill-a 进库为 y__skill-a，不覆盖 x__
+            let r3 = SkillDistributor.adopt(agentId: "y", skillDirs: [agentY],
+                                            library: lib, backupRoot: backup)
+            check(r3.imported == 1, "b: adopt Y imported 1 (got \(r3.imported))")
+            check(fm.fileExists(atPath: (lib as NSString).appendingPathComponent("y__skill-a")),
+                  "b: library has y__skill-a (no overwrite of x__)")
+
+            // 4) 分发：把 x__skill-a 分发给 target，链接名应为干净 skill-a
+            var cfg = SkillDistributor.Config()
+            cfg.skills["x__skill-a"] = ["target"]
+            let n = SkillDistributor.sync(library: lib, platformDirs: ["target": [target]], config: cfg)
+            check(n == 1, "b: sync built 1 link (got \(n))")
+            let tLink = (target as NSString).appendingPathComponent("skill-a")
+            let tDest = (try? fm.destinationOfSymbolicLink(atPath: tLink)) ?? ""
+            check(tDest.hasSuffix("x__skill-a"), "b: target link basename clean skill-a -> x__skill-a (got \(tDest))")
+
+            // 5) owner 自己的采纳链接在 sync 清理中保留（不被误删）
+            //    模拟清理 agentX 自己的目录：其 skill-a 指向 library/x__skill-a，owner=x 应保留
+            let _ = SkillDistributor.sync(library: lib,
+                                          platformDirs: ["x": [agentX], "target": [target]], config: cfg)
+            check(fm.fileExists(atPath: linkAX), "b: owner adoption symlink survives re-sync")
+            // 而 target 的分发链接重建后仍存在
+            check(fm.fileExists(atPath: tLink), "b: target distribution link survives re-sync")
+        }
+
         print("-----------------------------")
         print("SelfTest: \(passed) passed, \(failed) failed")
         return failed == 0 ? 0 : 1
