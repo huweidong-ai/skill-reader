@@ -138,7 +138,8 @@ struct BreadcrumbBar: View {
                     state.openInEditor()
                 } label: {
                     Image(systemName: "pencil")
-                        .font(.system(size: 11))
+                        .font(.system(size: 15))
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
@@ -149,7 +150,8 @@ struct BreadcrumbBar: View {
                     state.shareActive()
                 } label: {
                     Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 11))
+                        .font(.system(size: 15))
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
@@ -159,7 +161,8 @@ struct BreadcrumbBar: View {
                     state.revealActiveFile()
                 } label: {
                     Image(systemName: "arrow.right.circle")
-                        .font(.system(size: 11))
+                        .font(.system(size: 15))
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
@@ -205,13 +208,13 @@ struct SidebarView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "folder")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                         Text(rootName)
                             .lineLimit(1)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 8))
+                            .font(.system(size: 10))
                     }
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -227,7 +230,8 @@ struct SidebarView: View {
                     state.flashToast("已刷新")
                 } label: {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12))
+                        .font(.system(size: 15))
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
@@ -237,7 +241,8 @@ struct SidebarView: View {
                     state.syncDistribution()
                 } label: {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 12))
+                        .font(.system(size: 15))
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
@@ -257,7 +262,8 @@ struct SidebarView: View {
                     }
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 12))
+                        .font(.system(size: 15))
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
@@ -267,11 +273,14 @@ struct SidebarView: View {
                     state.reopenSetup()
                 } label: {
                     Image(systemName: "gearshape")
-                        .font(.system(size: 12))
+                        .font(.system(size: 15))
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .help("配置 Agent")
+
+                ThemeMenu()
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -281,7 +290,7 @@ struct SidebarView: View {
             // 搜索框
             HStack(spacing: 4) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
+                    .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
                 TextField("搜索技能名 / 描述，回车全局搜索…", text: $state.searchText)
                     .textFieldStyle(.plain)
@@ -292,7 +301,7 @@ struct SidebarView: View {
                         state.clearSearch()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                     }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.tertiary)
@@ -323,6 +332,42 @@ struct SidebarView: View {
             return "无技能库"
         }
         return root.name
+    }
+}
+
+// MARK: - 主题切换菜单
+
+struct ThemeMenu: View {
+    @EnvironmentObject var state: AppState
+
+    var body: some View {
+        Menu {
+            ForEach(ThemeMode.allCases) { mode in
+                Button {
+                    state.setTheme(mode)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: mode.icon)
+                            .font(.system(size: 13))
+                            .frame(width: 18, height: 18)
+                        Text(mode.label)
+                            .font(.system(size: 13))
+                        Spacer()
+                        if state.theme == mode {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 11))
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: state.theme.icon)
+                .font(.system(size: 15))
+                .frame(width: 24, height: 24)
+        }
+        .menuStyle(.borderlessButton)
+        .foregroundStyle(.secondary)
+        .help("主题：\(state.theme.label)")
     }
 }
 
@@ -757,7 +802,7 @@ struct SearchResultList: View {
 
     private func snippetText(_ s: String) -> String {
         // 去掉 markdown 链接语法，保留可读文本
-        s.replacingOccurrences(of: #"\[(.*?)\]\(.*?\)"#, with: "$1", options: .regularExpression)
+        s.replacingOccurrences(of: #"\[(.*?)\]\(.*?)"#, with: "$1", options: .regularExpression)
     }
 }
 
@@ -821,6 +866,10 @@ struct TocView: View {
         }
     }
 }
+
+// MARK: - 主题切换菜单
+
+// ThemeMenu is defined above, alongside SidebarView.
 
 // MARK: - Toast
 

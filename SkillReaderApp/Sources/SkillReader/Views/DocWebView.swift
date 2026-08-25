@@ -108,6 +108,7 @@ struct DocWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             state.webReady = true
+            state.applyTheme()
             state.renderCurrent()
         }
 
@@ -132,6 +133,7 @@ struct DocWebView: NSViewRepresentable {
             switch action {
             case "ready":
                 state.webReady = true
+                state.applyTheme()
                 state.renderCurrent()
 
             case "toc":

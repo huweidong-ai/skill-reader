@@ -1802,6 +1802,25 @@ function renderWelcome() {
   notify({ action: "toc", items: [] });
 }
 
+// 主题切换（Swift 调用）
+// 主题模式："auto" | "light" | "dark"
+var __themeListener = null;
+window.applyTheme = function(mode) {
+  if (__themeListener) {
+    try { window.matchMedia("(prefers-color-scheme: dark)").removeEventListener("change", __themeListener); } catch (e) {}
+    __themeListener = null;
+  }
+  if (mode === "auto") {
+    var m = window.matchMedia("(prefers-color-scheme: dark)");
+    var apply = function() { document.documentElement.dataset.theme = m.matches ? "dark" : "light"; };
+    apply();
+    m.addEventListener("change", apply);
+    __themeListener = apply;
+    return;
+  }
+  document.documentElement.dataset.theme = mode;
+};
+
 // Swift 调用入口
 window.renderSkill = function(p) {
   currentBaseDir = p.baseDir || "";

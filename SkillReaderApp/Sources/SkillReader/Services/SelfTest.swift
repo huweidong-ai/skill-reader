@@ -279,7 +279,7 @@ enum SelfTest {
             let lib = (base as NSString).appendingPathComponent("library")
             let p1 = (base as NSString).appendingPathComponent("platformA")   // Claude Code 模拟
             let p2 = (base as NSString).appendingPathComponent("platformB")   // OpenClaw 模拟
-            let p3 = (base as NSString).appendingPathComponent("platformC")   // 未安装平台模拟（目录不存在）
+            _ = (base as NSString).appendingPathComponent("platformC")   // 未安装平台模拟（目录不存在）
 
             // 中心库建两个 skill：skill-a（含 SKILL.md）、skill-b
             let a = (lib as NSString).appendingPathComponent("skill-a")

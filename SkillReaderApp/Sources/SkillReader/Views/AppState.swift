@@ -10,6 +10,32 @@ struct TocItem: Identifiable, Equatable {
     let level: Int
 }
 
+// MARK: - 主题模式
+
+enum ThemeMode: String, CaseIterable, Identifiable {
+    case auto = "auto"
+    case light = "light"
+    case dark = "dark"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .auto: return "跟随系统"
+        case .light: return "浅色"
+        case .dark: return "深色"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .auto: return "circle.righthalf.filled"
+        case .light: return "sun.max"
+        case .dark: return "moon.fill"
+        }
+    }
+}
+
 // MARK: - 全局状态
 
 @MainActor
@@ -60,6 +86,9 @@ final class AppState: ObservableObject {
     @Published var distributeSkillName: String? = nil   // nil = sheet 关闭；非 nil = 正在配置该 skill
     @Published var distributePlatforms: Set<String> = [] // sheet 中勾选的平台 id
 
+    // ---- 主题 ----
+    @Published var theme: ThemeMode = .auto
+
     // MARK: - 初始化
 
     init() {
@@ -71,6 +100,38 @@ final class AppState: ObservableObject {
         reloadSkills()
         // skill 互通：启动时全量同步一次分发挂载（幂等，纯文件 IO）
         _ = SkillDistributor.shared.syncAll()
+        // 主题
+        if let raw = UserDefaults.standard.string(forKey: "skillreader_theme"),
+           let mode = ThemeMode(rawValue: raw) {
+            theme = mode
+        }
+        applyTheme()
+    }
+
+    // MARK: - 主题
+
+    /// 切换并持久化主题，同时作用于原生 App 外观与 WebView 阅读器
+    func setTheme(_ mode: ThemeMode) {
+        guard theme != mode else { return }
+        theme = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: "skillreader_theme")
+        applyTheme()
+        flashToast("已切换为：\(mode.label)")
+    }
+
+    /// 应用主题到 AppKit 与 WKWebView（webReady 后生效）
+    func applyTheme() {
+        switch theme {
+        case .auto:
+            NSApp.appearance = nil
+        case .light:
+            NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+        guard webReady, let webView else { return }
+        // rawValue 为 auto/light/dark，仅含安全字符；直接嵌入 JS 字符串
+        callJS("window.applyTheme(\"\(theme.rawValue)\")", on: webView)
     }
 
     // MARK: - 首次 Agent 配置
