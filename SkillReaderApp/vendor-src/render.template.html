@@ -22,12 +22,12 @@
    与 Web 版共用同一设计语言；深浅主题由 data-theme 驱动
    ============================================================ */
 :root {
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-press: #3730a3;
-  --accent-soft: rgba(79, 70, 229, 0.08);
-  --accent-border: rgba(79, 70, 229, 0.24);
-  --accent-grad: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  --accent: #007AFF;
+  --accent-hover: #005FCC;
+  --accent-press: #004999;
+  --accent-soft: rgba(0, 122, 255, 0.10);
+  --accent-border: rgba(0, 122, 255, 0.30);
+  --accent-grad: linear-gradient(135deg, #339CFF 0%, #007AFF 100%);
 
   --bg: #ffffff;
   --bg-sub: #f6f7fb;
@@ -51,9 +51,9 @@
   --code-attr: #ffcb6b;
   --code-builtin: #89ddff;
 
-  --inline-code-bg: rgba(79, 70, 229, 0.09);
-  --inline-code-text: #4338ca;
-  --link: #4f46e5;
+  --inline-code-bg: rgba(0, 122, 255, 0.10);
+  --inline-code-text: #005FCC;
+  --link: #007AFF;
   --shadow-sm: 0 1px 2px rgba(23, 26, 42, 0.05), 0 1px 3px rgba(23, 26, 42, 0.04);
   --shadow-md: 0 2px 4px rgba(23, 26, 42, 0.04), 0 12px 28px rgba(23, 26, 42, 0.08);
   --shadow-lg: 0 4px 8px rgba(23, 26, 42, 0.05), 0 24px 48px rgba(23, 26, 42, 0.12);
@@ -64,12 +64,12 @@
 }
 
 html[data-theme="dark"] {
-  --accent: #818cf8;
-  --accent-hover: #a5b4fc;
-  --accent-press: #6366f1;
-  --accent-soft: rgba(129, 140, 248, 0.14);
-  --accent-border: rgba(129, 140, 248, 0.32);
-  --accent-grad: linear-gradient(135deg, #a5b4fc 0%, #6366f1 100%);
+  --accent: #0A84FF;
+  --accent-hover: #409CFF;
+  --accent-press: #0066CC;
+  --accent-soft: rgba(10, 132, 255, 0.16);
+  --accent-border: rgba(10, 132, 255, 0.35);
+  --accent-grad: linear-gradient(135deg, #409CFF 0%, #0A84FF 100%);
 
   --bg: #12141b;
   --bg-sub: #171a23;
@@ -81,9 +81,9 @@ html[data-theme="dark"] {
   --text-2: #a5adc4;
   --text-3: #6e7690;
 
-  --inline-code-bg: rgba(129, 140, 248, 0.16);
-  --inline-code-text: #b6c2ff;
-  --link: #a5b4fc;
+  --inline-code-bg: rgba(10, 132, 255, 0.16);
+  --inline-code-text: #70B8FF;
+  --link: #0A84FF;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4), 0 12px 28px rgba(0, 0, 0, 0.45);
   --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.4), 0 24px 48px rgba(0, 0, 0, 0.5);
@@ -100,11 +100,11 @@ body {
   transition: background .25s ease, color .25s ease;
 }
 ::selection { background: var(--accent); color: #fff; }
-/* 深色代码块区域内选中高亮：亮底深字，对比更明显 */
+/* 深色代码块区域内选中高亮：截图浅蓝底深色字 */
 .md-body pre ::selection,
 .code-body ::selection,
 .source-view ::selection,
-.plain-view pre ::selection { background: #818cf8; color: #151823; }
+.plain-view pre ::selection { background: #B3D7FF; color: #151823; }
 #content { padding: 30px 28px 90px; overflow-y: auto; height: 100vh; }
 /* 代码/纯文本/Source view 贴底撑满 */
 body.code-view #content { padding-bottom: 0; overflow: hidden; }
