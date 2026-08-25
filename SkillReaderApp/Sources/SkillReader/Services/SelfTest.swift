@@ -149,6 +149,38 @@ enum SelfTest {
             try? FileManager.default.removeItem(atPath: base)
         }
 
+        // ---- SkillStore.listSkills 无 SKILL.md 但含 .md 文件的目录应识别为 package ----
+        do {
+            let base = NSTemporaryDirectory() + "skillreader-package-no-entry-\(UUID().uuidString)"
+            let pkg = base + "/documents__Docker"
+            try? FileManager.default.createDirectory(atPath: pkg, withIntermediateDirectories: true)
+            try? "# Docker\n".write(toFile: pkg + "/Docker下载源&桌面应用.md", atomically: true, encoding: .utf8)
+
+            let aggregate = base + "/openclaw"
+            try? FileManager.default.createDirectory(atPath: aggregate + "/real-skill", withIntermediateDirectories: true)
+            try? "x".write(toFile: aggregate + "/real-skill/SKILL.md", atomically: true, encoding: .utf8)
+
+            let store = SkillStore()
+            store.loadRoots(extra: [base])
+            store.currentRootID = store.roots.last?.id
+
+            let skills = store.listSkills()
+            let names = skills.map { $0.name }.sorted()
+            check(names == ["documents__Docker", "real-skill"],
+                  "package-no-entry: directories with .md treated as package (got \(names))")
+            let docker = skills.first(where: { $0.name == "documents__Docker" })
+            check(docker?.kind == .package, "package-no-entry: kind is package")
+            check(docker?.entry == nil, "package-no-entry: no SKILL.md entry")
+            check(!names.contains("Docker下载源&桌面应用.md"),
+                  "package-no-entry: inner .md not promoted to top level")
+
+            let tree = store.tree(for: "documents__Docker")
+            check(tree?.children.contains(where: { $0.name == "Docker下载源&桌面应用.md" }) == true,
+                  "package-no-entry: inner .md visible in tree")
+
+            try? FileManager.default.removeItem(atPath: base)
+        }
+
         // ---- AgentProfile Codable：extraSkillPaths 持久化 + detected 不持久化 ----
         do {
             var p = AgentProfile(id: "x", name: "X Agent", vendor: "v", iconName: "star",

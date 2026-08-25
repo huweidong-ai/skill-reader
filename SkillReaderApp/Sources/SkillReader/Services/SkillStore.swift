@@ -155,12 +155,34 @@ final class SkillStore: ObservableObject {
                     collected.append(scanPackage(root: dir, name: name, full: full))
                 } else if topLevel {
                     // 聚合层（如 OpenClaw 多路径挂载）：下钻一层找 skill
-                    collectSkills(in: full, into: &collected, topLevel: false)
+                    // 但首先：如果该目录自身含有 skill 文件，则当作无 SKILL.md 的 skill 包处理
+                    if hasDirectSkillFiles(full) {
+                        collected.append(scanPackage(root: dir, name: name, full: full))
+                    } else {
+                        collectSkills(in: full, into: &collected, topLevel: false)
+                    }
                 }
             } else if name.lowercased().hasSuffix(".md") || name.lowercased().hasSuffix(".markdown") {
                 collected.append(scanStandalone(root: dir, name: name, full: full))
             }
         }
+    }
+
+    /// 判断目录是否直接包含 skill 相关文件（.md/.py），用于区分「无 SKILL.md 的 skill 包」与「聚合层目录」。
+    private func hasDirectSkillFiles(_ dir: String) -> Bool {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(atPath: dir) else { return false }
+        for name in entries {
+            if name.hasPrefix(".") { continue }
+            let full = (dir as NSString).appendingPathComponent(name)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: full, isDirectory: &isDir), !isDir.boolValue else { continue }
+            let lower = name.lowercased()
+            if lower.hasSuffix(".md") || lower.hasSuffix(".markdown") || lower.hasSuffix(".py") {
+                return true
+            }
+        }
+        return false
     }
 
     private func dedupeSkills(_ list: [Skill]) -> [Skill] {
