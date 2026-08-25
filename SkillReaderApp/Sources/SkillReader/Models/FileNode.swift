@@ -7,13 +7,12 @@ enum FileKind: String {
 
     var icon: String {
         switch self {
-        case .md: return "doc.richtext"
-        case .code: return "chevron.left.forwardslash.chevron.right"
-        case .yaml, .json, .toml: return "gearshape"
-        case .text: return "doc.plaintext"
-        case .img: return "photo"
-        case .pdf: return "book"
-        case .bin: return "questionmark.folder"
+        case .md, .code, .yaml, .json, .toml, .text, .bin:
+            return "doc.text"   // 统一文件图标：文件就是文件
+        case .img:
+            return "photo"
+        case .pdf:
+            return "book"
         }
     }
 }

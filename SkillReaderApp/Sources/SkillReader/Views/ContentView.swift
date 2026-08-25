@@ -479,6 +479,11 @@ struct SkillRow: View {
                             .foregroundStyle(.tertiary)
                             .frame(width: 10)
                             .padding(.top, 4)
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 16)
+                            .padding(.top, 4)
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 5) {
                                 Text(skill.name)
@@ -626,9 +631,9 @@ struct DirNodeView: View {
                         .font(.system(size: 8))
                         .foregroundStyle(.tertiary)
                         .frame(width: 8)
-                    Image(systemName: "folder")
+                    Image(systemName: "folder.fill")
                         .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                     Text(node.name)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
