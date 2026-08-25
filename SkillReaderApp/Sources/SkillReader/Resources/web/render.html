@@ -110,7 +110,12 @@ body {
   -webkit-font-smoothing: antialiased;
   transition: background .25s ease, color .25s ease;
 }
-::selection { background: var(--accent-soft); }
+::selection { background: var(--accent); color: #fff; }
+/* 深色代码块区域内选中高亮：亮底深字，对比更明显 */
+.md-body pre ::selection,
+.code-body ::selection,
+.source-view ::selection,
+.plain-view pre ::selection { background: #818cf8; color: #151823; }
 #content { padding: 30px 28px 90px; overflow-y: auto; height: 100vh; }
 /* 代码/纯文本/Source view 贴底撑满 */
 body.code-view #content { padding-bottom: 0; overflow: hidden; }
@@ -170,13 +175,27 @@ body.code-view .code-body { flex: 1 1 auto; max-height: none; }
 .md-body pre {
   background: var(--code-bg); border: 1px solid var(--code-border);
   border-radius: 12px; padding: 14px 16px;
-  overflow-x: auto; line-height: 1.65; margin: 1em 0;
+  overflow-x: auto; line-height: 1.65; margin: 0;
   box-shadow: var(--shadow-sm);
+  user-select: text; -webkit-user-select: text;
 }
 .md-body pre code {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 13px; background: transparent; padding: 0; color: var(--code-text);
+  user-select: text; -webkit-user-select: text;
 }
+/* Markdown 代码块：外层包裹 + 右上角复制按钮 */
+.md-code { position: relative; margin: 1em 0; }
+.md-code .md-code-copy {
+  position: absolute; top: 8px; right: 8px; z-index: 2;
+  height: 24px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg-sub);
+  font-size: 11px; color: var(--text-2); cursor: pointer;
+  font-family: inherit; transition: all .15s;
+}
+.md-code .md-code-copy:hover { background: var(--bg-hover); color: var(--text); border-color: var(--border-strong); }
+/* 代码文件查看器也确保可选中 */
+.code-body, .code-body pre, .code-body pre code { user-select: text; -webkit-user-select: text; }
 .md-body table { border-collapse: collapse; margin: 1em 0; width: 100%; font-size: 13.5px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .md-body th, .md-body td { border: 1px solid var(--border); padding: 8px 14px; }
 .md-body th { background: var(--bg-sub); font-weight: 600; color: var(--text); }
