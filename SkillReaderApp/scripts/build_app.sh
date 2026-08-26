@@ -108,6 +108,29 @@ cat > "$TARGET/Contents/Info.plist" <<PLIST
 	<string>NSApplication</string>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>md</string>
+				<string>markdown</string>
+				<string>mdown</string>
+				<string>mkd</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>Markdown 文档</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.markdown</string>
+				<string>net.daringfireball.markdown</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
 PLIST

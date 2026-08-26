@@ -300,6 +300,12 @@ final class SkillStore: ObservableObject {
         return node
     }
 
+    /// 由扩展名推断代码高亮语言（供外部文件渲染复用）
+    func language(for name: String) -> String? {
+        let ext = "." + (name as NSString).pathExtension.lowercased()
+        return codeLang[ext]
+    }
+
     private func dirFlag(_ dir: String, _ name: String) -> Bool {
         var isDir: ObjCBool = false
         FileManager.default.fileExists(atPath: (dir as NSString).appendingPathComponent(name),

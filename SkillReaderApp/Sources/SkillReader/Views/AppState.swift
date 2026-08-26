@@ -40,6 +40,8 @@ enum ThemeMode: String, CaseIterable, Identifiable {
 
 @MainActor
 final class AppState: ObservableObject {
+    static var shared: AppState?
+
     let store = SkillStore()
 
     // ---- 技能列表 / 搜索 ----
@@ -48,6 +50,7 @@ final class AppState: ObservableObject {
     @Published var searchResults: [SearchResult]? = nil   // nil = 列表模式
     @Published var isSearching = false
     @Published var searchDone = false
+    @Published var searchExpanded = false               // 搜索框是否展开（ClaudeCode 风格折叠搜索）
 
     // ---- 当前打开 ----
     @Published var activeSkill: Skill?
@@ -69,6 +72,68 @@ final class AppState: ObservableObject {
     @Published var activeHeadingText: String?
     @Published var tocVisible = false
     @Published var sourceMode = false
+
+    // ---- 外部文件（Finder 右键「打开方式」打开的任意本地文件）----
+    @Published var externalFile: URL? = nil
+    var pendingOpenURL: URL? = nil   // webView 未就绪时暂存
+
+    // ---- 导航栏折叠（参考 macos-swift-dev-guide 侧边栏导航模板）----
+    @Published var sidebarUserCollapsed = false   // 用户手动收起
+    @Published var sidebarTransient = false        // 收起态下临时滑出（点空白收回）
+    @Published var sidebarWidth: CGFloat = 260
+    @Published var windowWidth: CGFloat = 1100
+    /// 进入外部文件模式前的导航栏收起状态（退出时恢复，尊重用户选择）
+    private var sidebarCollapseBeforeExternal: Bool? = nil
+
+    private let sidebarDetailMinWidth: CGFloat = 480
+    /// 导航栏常驻所需最小窗口宽 = 侧栏宽 + 内容最小宽 + 间隙
+    var sidebarDockedMinWidth: CGFloat { sidebarWidth + sidebarDetailMinWidth + 8 }
+    /// 自动收起：仅当窗口太窄放不下导航栏。
+    /// 外部文件模式的自动收起不在这里硬编码——由 openExternalFile 置 sidebarUserCollapsed 实现，
+    /// 这样窗口够宽时用户点展开仍能固定到左侧常驻，而不是只能临时滑出。
+    var sidebarAutoCollapsed: Bool {
+        windowWidth < sidebarDockedMinWidth
+    }
+    /// 导航栏是否可见（常驻或临时滑出）
+    var sidebarVisible: Bool {
+        sidebarTransient || (!sidebarUserCollapsed && !sidebarAutoCollapsed)
+    }
+    /// 导航栏是否「常驻并挤压内容区」（区别于临时滑出浮层）
+    var sidebarDocked: Bool {
+        sidebarVisible && !sidebarTransient && !sidebarAutoCollapsed
+    }
+
+    /// 面包屑 / 工具栏的导航栏显隐按钮（参考侧边栏导航模板 §3.1 双分支逻辑）
+    func toggleSidebar() {
+        if sidebarVisible {
+            // 展开态（常驻 或 临时 flyout）→ 无脑收起
+            sidebarUserCollapsed = true
+            sidebarTransient = false
+        } else if currentWindowWidth() < sidebarDockedMinWidth {
+            // 收起态 + 窗口太窄 → 临时滑出浮层，点空白收回，不挤压内容区
+            sidebarTransient = true
+            sidebarUserCollapsed = false
+        } else {
+            // 收起态 + 窗口足够宽（含外部文件模式）→ 固定到左侧常驻，内容区让出导航栏宽度
+            sidebarUserCollapsed = false
+            sidebarTransient = false
+        }
+    }
+
+    /// 实时读取当前窗口宽度（避免 windowWidth 状态过期导致误判折叠/展开）
+    private func currentWindowWidth() -> CGFloat {
+        let candidates = ([NSApp.mainWindow, NSApp.keyWindow] as [NSWindow?]).compactMap { $0 }
+            + NSApp.windows
+        if let w = candidates.first(where: { $0.isVisible && !$0.isMiniaturized }) {
+            return w.frame.width
+        }
+        return windowWidth
+    }
+
+    /// 由窗口 resize 通知驱动（读 NSWindow.frame，不用 GeometryReader，见 §A）
+    func updateWindowWidth(_ w: CGFloat) {
+        windowWidth = w
+    }
 
     // ---- WebView ----
     @Published var webReady = false
@@ -112,6 +177,7 @@ final class AppState: ObservableObject {
             theme = mode
         }
         applyTheme()
+        AppState.shared = self
     }
 
     // MARK: - 主题
@@ -166,6 +232,7 @@ final class AppState: ObservableObject {
 
     private func enterReader() {
         needsSetup = false
+        exitExternalMode()
         store.loadRoots()
         reloadSkills()
     }
@@ -294,6 +361,7 @@ final class AppState: ObservableObject {
     }
 
     func selectSkill(_ skill: Skill) {
+        exitExternalMode()
         activeSkill = skill
         expandedSkills.insert(skill.path)
         if let entry = skill.entry {
@@ -317,6 +385,7 @@ final class AppState: ObservableObject {
     }
 
     func openFile(skill: Skill, path: String) {
+        exitExternalMode()
         guard let file = store.readFile(skillPath: skill.path, relPath: path) else {
             flashToast("读取失败: 文件不存在", isError: true)
             return
@@ -333,6 +402,11 @@ final class AppState: ObservableObject {
     }
 
     func revealActiveFile() {
+        if let ext = externalFile {
+            _ = store.revealInFinder(path: ext.path)
+            flashToast("已在 Finder 中定位")
+            return
+        }
         guard let skill = activeSkill, let path = activePath,
               let abs = store.rawPath(skillPath: skill.path, relPath: path) else { return }
         _ = store.revealInFinder(path: abs)
@@ -408,6 +482,10 @@ final class AppState: ObservableObject {
 
     /// 当前文件是否可在系统编辑器中打开（文本类）
     var canEditCurrent: Bool {
+        if let ext = externalFile {
+            let k = store.classify(ext.lastPathComponent)
+            return [.md, .code, .yaml, .json, .toml, .text].contains(k)
+        }
         guard let file = currentFile, file.content != nil, !file.tooLarge else { return false }
         switch file.kind {
         case .md, .code, .yaml, .json, .toml, .text: return true
@@ -417,6 +495,11 @@ final class AppState: ObservableObject {
 
     /// 在系统默认编辑器中打开当前文件（如 TextEdit / VSCode / Typora 等）
     func openInEditor() {
+        if let ext = externalFile {
+            NSWorkspace.shared.open(ext)
+            flashToast("已在系统编辑器打开")
+            return
+        }
         guard let skill = activeSkill, let path = activePath,
               let abs = store.rawPath(skillPath: skill.path, relPath: path) else { return }
         NSWorkspace.shared.open(URL(fileURLWithPath: abs))
@@ -425,6 +508,16 @@ final class AppState: ObservableObject {
 
     /// 分享：Finder 定位 + 复制路径（无中间文件）
     func shareActive() {
+        if let ext = externalFile {
+            let abs = ext.path
+            NSWorkspace.shared.activateFileViewerSelecting([ext])
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(abs, forType: .string)
+            pb.writeObjects([ext] as [NSPasteboardWriting])
+            flashToast("已在 Finder 定位 + 已复制路径，可拖入任意目标")
+            return
+        }
         guard let skill = activeSkill, let path = activePath,
               let abs = store.rawPath(skillPath: skill.path, relPath: path) else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: abs)])
@@ -454,10 +547,17 @@ final class AppState: ObservableObject {
     func backToEntry() {
         guard let skill = activeSkill, let entry = skill.entry,
               activePath != nil, activePath != entry else { return }
+        exitExternalMode()
         openFile(skill: skill, path: entry)
     }
 
     func toggleSourceMode() {
+        if let ext = externalFile {
+            guard store.classify(ext.lastPathComponent) == .md else { return }
+            sourceMode.toggle()
+            renderCurrent()
+            return
+        }
         guard let file = currentFile, file.kind == .md, file.content != nil else { return }
         sourceMode.toggle()
         renderCurrent()
@@ -465,8 +565,62 @@ final class AppState: ObservableObject {
 
     // MARK: - 渲染
 
+    /// 由 AppDelegate 在 macOS 打开文件事件（右键「打开方式」）时调用
+    func handleOpenURL(_ url: URL) {
+        guard url.isFileURL else { return }
+        if webReady {
+            openExternalFile(url)
+        } else {
+            pendingOpenURL = url
+        }
+    }
+
+    /// 在「外部文件」模式下打开一个本地文件（脱离 skill 包，直接渲染）
+    func openExternalFile(_ url: URL) {
+        externalFile = url
+        // 自动收起导航栏（需求：右键打开文件时缩小导航栏，把空间让给正文）。
+        // 记住进入前的收起状态，退出外部文件模式时恢复，尊重用户选择。
+        if sidebarCollapseBeforeExternal == nil {
+            sidebarCollapseBeforeExternal = sidebarUserCollapsed
+        }
+        sidebarUserCollapsed = true
+        sidebarTransient = false
+        activeSkill = nil
+        activePath = nil
+        currentFile = nil
+        tocItems = []
+        activeHeadingID = nil
+        activeHeadingText = nil
+        expandedSkills = []
+        sourceMode = false
+        if webReady {
+            renderCurrent()
+        } else {
+            pendingOpenURL = url
+        }
+    }
+
+    /// 退出「外部文件」模式（回到技能阅读），恢复导航栏到进入前的状态。
+    /// 所有导航动作（选技能 / 打开文件 / 返回 / 切根 / 搜结果）统一走这里，避免状态残留。
+    private func exitExternalMode() {
+        if externalFile != nil {
+            externalFile = nil
+            if let saved = sidebarCollapseBeforeExternal {
+                sidebarUserCollapsed = saved
+            }
+            sidebarCollapseBeforeExternal = nil
+        }
+        sidebarTransient = false
+    }
+
     func renderCurrent() {
         guard webReady, let webView else { return }
+
+        // 外部文件模式：直接渲染该文件，不走 skill 包逻辑
+        if let ext = externalFile {
+            renderExternal(ext)
+            return
+        }
 
         // 构建 payload
         var payload: [String: Any] = [:]
@@ -497,6 +651,64 @@ final class AppState: ObservableObject {
         }
         if let content = file.content {
             payload["content"] = content
+        }
+
+        callJS("window.renderSkill(\(jsonString(payload)))", on: webView)
+    }
+
+    /// 渲染一个「外部文件」：复用现有 render.html 渲染器（md/代码/图片/PDF/纯文本）
+    private func renderExternal(_ url: URL) {
+        guard webReady, let webView else { return }
+        let name = url.lastPathComponent
+        let dir = url.deletingLastPathComponent()
+        let kind = store.classify(name)
+
+        var sizeStr = ""
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let s = attrs[.size] as? Int {
+            sizeStr = store.humanSize(s)
+        }
+
+        var payload: [String: Any] = [:]
+        switch kind {
+        case .md:
+            guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
+            payload["kind"] = "md"
+            payload["name"] = name
+            payload["skillName"] = name
+            payload["content"] = content
+            payload["baseDir"] = dir.absoluteString
+            payload["size"] = sizeStr
+            if sourceMode { payload["sourceMode"] = true }
+
+        case .code, .yaml, .json, .toml:
+            guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
+            payload["kind"] = kind.rawValue
+            payload["name"] = name
+            payload["content"] = content
+            payload["baseDir"] = dir.absoluteString
+            payload["size"] = sizeStr
+            if let lang = store.language(for: name) { payload["lang"] = lang }
+
+        case .text:
+            guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
+            payload["kind"] = "text"
+            payload["name"] = name
+            payload["content"] = content
+            payload["baseDir"] = dir.absoluteString
+            payload["size"] = sizeStr
+
+        case .img, .pdf:
+            payload["kind"] = kind.rawValue
+            payload["name"] = name
+            payload["path"] = url.absoluteString
+            payload["size"] = sizeStr
+
+        default:
+            // .bin 等不支持类型
+            payload["kind"] = "unsupported"
+            payload["name"] = name
+            payload["size"] = sizeStr
         }
 
         callJS("window.renderSkill(\(jsonString(payload)))", on: webView)
@@ -557,11 +769,26 @@ final class AppState: ObservableObject {
         searchDone = false
     }
 
+    /// 展开搜索框（ClaudeCode 风格折叠搜索）
+    func expandSearch() {
+        searchExpanded = true
+    }
+
+    /// 折叠搜索框（清空状态并收起）
+    func collapseSearch() {
+        searchExpanded = false
+        searchText = ""
+        searchResults = nil
+        searchDone = false
+    }
+
     func openSearchResult(_ result: SearchResult) {
+        exitExternalMode()
         guard let skill = skills.first(where: { $0.path == result.path }) else { return }
         searchResults = nil
         searchDone = false
         searchText = ""
+        searchExpanded = false
         if let entry = skill.entry {
             openFile(skill: skill, path: entry)
         } else {
@@ -573,6 +800,7 @@ final class AppState: ObservableObject {
 
     func switchRoot(id: String) {
         store.currentRootID = id
+        exitExternalMode()
         activeSkill = nil
         activePath = nil
         currentFile = nil

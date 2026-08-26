@@ -109,7 +109,15 @@ struct DocWebView: NSViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             state.webReady = true
             state.applyTheme()
-            state.renderCurrent()
+            if let url = state.pendingOpenURL {
+                state.pendingOpenURL = nil
+                state.openExternalFile(url)
+            } else {
+                AppDelegate.flushLaunchURLs()
+                if state.externalFile == nil {
+                    state.renderCurrent()
+                }
+            }
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
