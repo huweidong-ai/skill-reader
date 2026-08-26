@@ -7,29 +7,116 @@ struct ContentView: View {
     @EnvironmentObject var state: AppState
 
     var body: some View {
-        HSplitView {
-            SidebarView()
-                .frame(minWidth: 240, idealWidth: 300, maxWidth: 420)
+        ZStack(alignment: .leading) {
+            // 内容区永远在 ZStack 第一个子视图位置，只通过 padding 让出导航栏宽度，
+            // 切换折叠/外部文件模式时不重建，@State 不丢（见 ui-pitfalls.md §C）。
+            detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.leading, state.sidebarDocked ? state.sidebarWidth : 0)
+                .animation(.easeInOut(duration: 0.18), value: state.sidebarDocked)
 
-            VStack(spacing: 0) {
-                BreadcrumbBar()
-                Divider()
-                DocWebView(state: state)
+            // 临时滑出时的遮罩：点空白收回
+            if state.sidebarTransient {
+                Color.black.opacity(0.05)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onTapGesture { state.sidebarTransient = false }
             }
-            .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
 
-            if state.tocVisible {
-                TocView()
-                    .frame(minWidth: 180, idealWidth: 220, maxWidth: 280)
+            // 导航栏浮层：常驻（挤压内容）或临时滑出
+            if state.sidebarDocked {
+                SidebarView()
+                    .frame(width: state.sidebarWidth)
+            } else if state.sidebarTransient {
+                SidebarView()
+                    .frame(width: state.sidebarWidth)
+                    .shadow(color: .black.opacity(0.18), radius: 10, x: 3, y: 0)
+                    .zIndex(1)
+            }
+
+            // 常驻时画一条右缘分隔线
+            if state.sidebarDocked {
+                Color(nsColor: .separatorColor)
+                    .frame(width: 1, height: .infinity)
+                    .offset(x: state.sidebarWidth)
+                    .zIndex(2)
             }
         }
+        .frame(minWidth: state.sidebarDocked ? state.sidebarDockedMinWidth : 700,
+               maxWidth: .infinity, minHeight: 560, maxHeight: .infinity)
         .overlay(alignment: .top) { ToastView() }
+        // 导航栏切换按钮放窗口标题栏（红绿灯右侧，macOS HIG / Safari 同款位置）
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    state.toggleSidebar()
+                } label: {
+                    Image(systemName: state.sidebarVisible ? "sidebar.left" : "sidebar.right")
+                        .font(.system(size: 14))
+                }
+                .help(state.sidebarVisible ? "隐藏导航栏" : "显示导航栏")
+            }
+        }
         .onExitCommand { state.backToEntry() }
+        .onAppear { enforceDefaultWidth() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            // 窗口成为 key 后再兜底一次（onAppear 时窗口可能尚未 visible，guard 会直接返回）
+            enforceDefaultWidth()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { _ in
+            // 过滤最小化代理 / 创建期瞬态零宽，避免把 windowWidth 压成极小值导致误判 autoCollapsed
+            if let w = NSApp.windows.first(where: { $0.isVisible && !$0.isMiniaturized && $0.frame.width > 200 }) {
+                state.updateWindowWidth(w.frame.width)
+            }
+        }
         .sheet(isPresented: Binding(
             get: { state.distributeSkillName != nil },
             set: { if !$0 { state.distributeSkillName = nil } }
         )) { DistributeSheet() }
+    }
+
+    // MARK: - 内容区（右侧）：面包屑 + 正文 + 可选大纲
+
+    private var detail: some View {
+        VStack(spacing: 0) {
+            BreadcrumbBar()
+            Divider()
+            HStack(spacing: 0) {
+                DocWebView(state: state)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if state.tocVisible {
+                    Divider()
+                    TocView()
+                        .frame(width: 220)
+                }
+            }
+        }
+    }
+
+    /// 默认展开兜底：macOS 会记住窗口 frame，adhoc 重新打包后常带回上次窄尺寸，
+    /// 导致 autoCollapsed 为真、一开就是折叠态。这里强制拉宽到默认展开态（见 §5）。
+    /// 首次执行时窗口可能尚未可见，失败会自动重试最多 5 次。
+    private func enforceDefaultWidth(attempt: Int = 0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            let candidates = ([NSApp.mainWindow, NSApp.keyWindow] as [NSWindow?]).compactMap { $0 }
+                + NSApp.windows
+            guard let window = candidates.first(where: { $0.isVisible && !$0.isMiniaturized }) else {
+                if attempt < 5 { self.enforceDefaultWidth(attempt: attempt + 1) }
+                return
+            }
+            window.isRestorable = false
+            let current = window.frame.width
+            state.updateWindowWidth(current)
+            // 外部文件（右键打开）模式下：窗口照常拉宽，但导航栏由 openExternalFile 自动收起
+            let target = max(state.sidebarDockedMinWidth, 1040)
+            let maxW = (window.screen?.visibleFrame.width ?? 1280) - 40
+            if current < target, target <= maxW {
+                var frame = window.frame
+                frame.size.width = target
+                frame.size.height = max(frame.size.height, 600)
+                window.setFrame(frame, display: true)
+                state.updateWindowWidth(frame.size.width)
+            }
+        }
     }
 }
 
@@ -120,7 +207,16 @@ struct BreadcrumbBar: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            if let skill = state.activeSkill {
+            if let ext = state.externalFile {
+                Image(systemName: "doc")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                Text(ext.lastPathComponent)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer()
+            } else if let skill = state.activeSkill {
                 Text(skill.name)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
@@ -156,17 +252,6 @@ struct BreadcrumbBar: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .help("分享：Finder 定位 + 复制路径 (⇧⌘S)")
-
-                Button {
-                    state.revealActiveFile()
-                } label: {
-                    Image(systemName: "arrow.right.circle")
-                        .font(.system(size: 15))
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("在 Finder 中定位")
             } else {
                 Text("Skill Reader")
                     .fontWeight(.semibold)
@@ -185,134 +270,73 @@ struct BreadcrumbBar: View {
 
 struct SidebarView: View {
     @EnvironmentObject var state: AppState
+    @FocusState private var searchFocus: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            // 顶栏：根目录切换 + 刷新
-            HStack(spacing: 6) {
-                Menu {
-                    ForEach(state.store.roots) { root in
-                        Button {
-                            state.switchRoot(id: root.id)
-                        } label: {
-                            HStack {
-                                Text(root.name)
-                                    .lineLimit(1)
-                                if state.store.currentRootID == root.id {
-                                    Spacer()
-                                    Image(systemName: "checkmark")
-                                }
-                            }
+            // 顶栏：折叠态 = 根目录名 + 搜索图标；展开态 = 全宽搜索框（ClaudeCode 风格）
+            if state.searchExpanded {
+                // 展开态：搜索框占满整行
+                HStack(spacing: 4) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                    TextField("搜索技能名 / 描述，回车全局搜索…", text: $state.searchText, onCommit: {
+                        state.runSearch()
+                    })
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .autocorrectionDisabled()
+                    .focused($searchFocus)
+                    .onChange(of: searchFocus) { _, isFocused in
+                        // 失焦且文本为空 → 自动折叠（点击空白处收起搜索框）
+                        if !isFocused, state.searchText.isEmpty, state.searchResults == nil {
+                            state.collapseSearch()
                         }
                     }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 13))
-                        Text(rootName)
-                            .lineLimit(1)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 10))
+                    if !state.searchText.isEmpty {
+                        Button {
+                            state.clearSearch()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 13))
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.tertiary)
                     }
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
-                .menuStyle(.borderlessButton)
-
-                Spacer()
-
-                Button {
-                    state.reloadSkills()
-                    state.flashToast("已刷新")
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 15))
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("刷新技能列表")
-
-                Button {
-                    state.syncDistribution()
-                } label: {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 15))
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("同步：把中心库 skill 分发到已启用平台")
-
-                Button {
-                    let panel = NSOpenPanel()
-                    panel.title = "选择技能库根目录"
-                    panel.canChooseFiles = false
-                    panel.canChooseDirectories = true
-                    panel.allowsMultipleSelection = false
-                    panel.prompt = "添加"
-                    if panel.runModal() == .OK, let url = panel.url {
-                        state.store.addRoot(path: url.path)
-                        state.switchRoot(id: state.store.currentRootID ?? "")
-                        state.flashToast("已添加技能库")
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 15))
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("添加技能库目录")
-
-                Button {
-                    state.reopenSetup()
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 15))
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("配置 Agent")
-
-                ThemeMenu()
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-
-            Divider()
-
-            // 搜索框
-            HStack(spacing: 4) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
-                TextField("搜索技能名 / 描述，回车全局搜索…", text: $state.searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .onSubmit { state.runSearch() }
-                if !state.searchText.isEmpty {
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+            } else {
+                // 折叠态：左边根目录名，右边搜索图标
+                HStack(spacing: 6) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                    Text(rootName)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Spacer()
                     Button {
-                        state.clearSearch()
+                        state.expandSearch()
+                        searchFocus = true
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 13))
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 15))
+                            .frame(width: 26, height: 26)
                     }
                     .buttonStyle(.borderless)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
+                    .help("搜索 (⌘F)")
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
 
             Divider()
 
@@ -324,6 +348,11 @@ struct SidebarView: View {
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        // ⌘F 来自菜单栏的搜索通知
+        .onReceive(NotificationCenter.default.publisher(for: .skillReaderToggleSearch)) { _ in
+            state.expandSearch()
+            DispatchQueue.main.async { searchFocus = true }
+        }
     }
 
     private var rootName: String {
@@ -332,42 +361,6 @@ struct SidebarView: View {
             return "无技能库"
         }
         return root.name
-    }
-}
-
-// MARK: - 主题切换菜单
-
-struct ThemeMenu: View {
-    @EnvironmentObject var state: AppState
-
-    var body: some View {
-        Menu {
-            ForEach(ThemeMode.allCases) { mode in
-                Button {
-                    state.setTheme(mode)
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: mode.icon)
-                            .font(.system(size: 13))
-                            .frame(width: 18, height: 18)
-                        Text(mode.label)
-                            .font(.system(size: 13))
-                        Spacer()
-                        if state.theme == mode {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 11))
-                        }
-                    }
-                }
-            }
-        } label: {
-            Image(systemName: state.theme.icon)
-                .font(.system(size: 15))
-                .frame(width: 24, height: 24)
-        }
-        .menuStyle(.borderlessButton)
-        .foregroundStyle(.secondary)
-        .help("主题：\(state.theme.label)")
     }
 }
 
@@ -457,6 +450,15 @@ struct SkillRow: View {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(rowBackground)
                 )
+                .overlay(alignment: .leading) {
+                    // 选中 / 右键目标：左侧竖条（参考 NavItem §6 选中态）
+                    if isActive || isContextTarget {
+                        Capsule()
+                            .fill(Color.srAccent)
+                            .frame(width: 2.5, height: 17)
+                            .offset(x: -3)
+                    }
+                }
                 .contextMenu {
                     Button("复制文件名") { state.copyItemName(skill: skill, rel: nil) }
                     Button("复制文件路径") { state.copyItemPath(skill: skill, rel: nil) }
@@ -517,6 +519,15 @@ struct SkillRow: View {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(rowBackground)
                 )
+                .overlay(alignment: .leading) {
+                    // 选中 / 右键目标：左侧竖条（参考 NavItem §6 选中态）
+                    if isActive || isContextTarget {
+                        Capsule()
+                            .fill(Color.srAccent)
+                            .frame(width: 2.5, height: 17)
+                            .offset(x: -3)
+                    }
+                }
                 .contextMenu {
                     Button("复制文件名") { state.copyItemName(skill: skill, rel: nil) }
                     Button("复制文件路径") { state.copyItemPath(skill: skill, rel: nil) }
@@ -725,6 +736,15 @@ struct FileRowView: View {
             RoundedRectangle(cornerRadius: 4)
                 .fill(rowBackground)
         )
+        .overlay(alignment: .leading) {
+            // 选中 / 右键目标：左侧竖条（参考 NavItem §6 选中态）
+            if isActive || isContextTarget {
+                Capsule()
+                    .fill(Color.srAccent)
+                    .frame(width: 2.5, height: 15)
+                    .offset(x: -3)
+            }
+        }
         .contextMenu {
             Button("复制文件名") { state.copyItemName(skill: skill, rel: node.path) }
             Button("复制文件路径") { state.copyItemPath(skill: skill, rel: node.path) }
@@ -872,9 +892,7 @@ struct TocView: View {
     }
 }
 
-// MARK: - 主题切换菜单
-
-// ThemeMenu is defined above, alongside SidebarView.
+// MARK: - 主题切换菜单（已挪到顶部菜单栏「技能库 → 主题」）
 
 // MARK: - Toast
 
