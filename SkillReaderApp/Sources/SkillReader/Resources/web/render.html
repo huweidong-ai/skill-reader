@@ -1737,7 +1737,11 @@ function renderMarkdown(p) {
   const normalizedBody = fixLinkDestinations(normalizeTableBlocks(controlClean));
   let html = marked.parse(normalizedBody, { gfm: true, breaks: false });
   html = fixRelativeMedia(html);
-  const clean = DOMPurify.sanitize(html);
+  // 允许 file:// 与 srfile:// 等本地协议（DOMPurify 默认禁止，会导致播放/图片链接的 href 被剥离）
+  const clean = DOMPurify.sanitize(html, {
+    ADD_URI_SAFE_ATTR: ["href", "src"],
+    ALLOWED_URI_REGEXP: /^(?:(?:f|ht)tps?|file|srfile|mailto|tel|callto|sms|cid|xmpp):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$)/i,
+  });
 
   document.getElementById("content").innerHTML = `
     <article class="md-body">
