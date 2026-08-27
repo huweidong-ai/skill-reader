@@ -124,13 +124,20 @@ struct DocWebView: NSViewRepresentable {
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             // 外链（http/https）一律交给系统浏览器
-            if let url = navigationAction.request.url,
-               url.scheme == "http" || url.scheme == "https" {
-                NSWorkspace.shared.open(url)
-                decisionHandler(.cancel)
+            guard let url = navigationAction.request.url else {
+                decisionHandler(.allow)
                 return
             }
-            decisionHandler(.allow)
+            switch url.scheme {
+            case "http", "https":
+                NSWorkspace.shared.open(url)
+                decisionHandler(.cancel)
+            case "file", "srfile":
+                // 本地文件链接交由 JS 消息（openFile）用原生播放器打开，WebView 不自行导航
+                decisionHandler(.cancel)
+            default:
+                decisionHandler(.allow)
+            }
         }
 
         func userContentController(_ userContentController: WKUserContentController,
@@ -169,6 +176,21 @@ struct DocWebView: NSViewRepresentable {
             case "openURL":
                 if let urlStr = body["url"] as? String, let url = URL(string: urlStr) {
                     NSWorkspace.shared.open(url)
+                }
+
+            case "openFile":
+                // 本地文件（视频/文档）：去掉 srfile:// 或 file:// 前缀得到绝对路径，
+                // 用系统默认 App 打开（.mp4 → 默认视频播放器，如 QuickTime/IINA/VLC）
+                if let urlStr = body["url"] as? String {
+                    var s = urlStr
+                    if s.hasPrefix("srfile://") { s = String(s.dropFirst("srfile://".count)) }
+                    else if s.hasPrefix("file://") { s = String(s.dropFirst("file://".count)) }
+                    let path = s.removingPercentEncoding ?? s
+                    if FileManager.default.fileExists(atPath: path) {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                    } else {
+                        state.flashToast(L10n.t("文件不存在", "File not found"))
+                    }
                 }
 
             case "openRaw":

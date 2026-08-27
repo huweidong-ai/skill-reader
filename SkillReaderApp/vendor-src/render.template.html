@@ -366,6 +366,58 @@ function parseFrontmatter(src) {
   return { fm, body: src.slice(m[0].length) };
 }
 
+// 表格块规整：GFM 规范下，表格内部（含表头与分隔行之间、数据行之间）一旦出现空行，
+// marked 会在空行处切断表格，导致表头之后的所有行退化为纯文本。
+// 部分编辑器（markdown-it / Typora 等）对此更宽容，故同一份 markdown 在别处能正常渲染、
+// 在本阅读器却异常。这里在解析前把「表格行组」内被空行切断的连续行重新拼回完整表格，
+// 同时跳过围栏代码块，避免误删代码块内的空行。
+function normalizeTableBlocks(src) {
+  const lines = src.split("\n");
+  const out = [];
+  let inFence = false, fenceToken = "";
+  let prevTable = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    const fenceMatch = trimmed.match(/^(\s*)(```|~~~)/);
+    if (fenceMatch) {
+      if (!inFence) { inFence = true; fenceToken = fenceMatch[2]; }
+      else if (trimmed.startsWith(fenceToken)) { inFence = false; fenceToken = ""; }
+      out.push(line); prevTable = false; continue;
+    }
+    if (inFence) { out.push(line); prevTable = false; continue; }
+    const isTableRow = /^\s*\|/.test(line) || /\|\s*$/.test(trimmed);
+    if (line.trim() === "" && prevTable) {
+      const next = lines[i + 1];
+      if (next !== undefined) {
+        const nt = next.trim();
+        const nextTableRow = /^\s*\|/.test(next) || /\|\s*$/.test(nt);
+        if (nextTableRow) continue; // 跳过表格块内的空行
+      }
+    }
+    out.push(line);
+    prevTable = isTableRow;
+  }
+  return out.join("\n");
+}
+
+// 控制字符归一化：U+2028 行分隔符 / U+2029 段分隔符 / U+0085 NEL / U+000B 垂直制表符
+// 在 JS 里被当作换行，会让 marked 把表格行 / 列表项从中间劈断，整块结构崩塌。
+// 这些字符肉眼不可见（生成工具常把"换行"塞进单元格），统一替换为普通空格。
+function normalizeControlSeparators(src) {
+  return src.replace(/[\u2028\u2029\u0085\u000B]/g, " ");
+}
+
+// 链接目标含空格修复：裸链接 `[text](url)` 的 url 不允许含空格，否则 marked 把链接
+// 解析崩、连带破坏所在单元格/表格。把"含空格且未被尖括号包裹"的目标用 <> 包起来
+// （marked 支持 `<url with space>` 形式的目的地）。file:// 路径里的中文与全角括号不受影响。
+function fixLinkDestinations(src) {
+  return src.replace(/(\[[^\]]*\]\()([^)]+)(\))/g, (m, open, url, close) => {
+    if (url.includes(" ") && !url.startsWith("<")) return open + "<" + url + ">" + close;
+    return m;
+  });
+}
+
 function parseScalar(v) {
   v = v.trim();
   if (!v) return "";
@@ -443,7 +495,9 @@ function renderMarkdown(p) {
       return `<span class="fm-chip"><b>${esc(k)}</b>${esc(val)}</span>`;
     }).join("") : "";
 
-  let html = marked.parse(body, { gfm: true, breaks: false });
+  const controlClean = normalizeControlSeparators(body);
+  const normalizedBody = fixLinkDestinations(normalizeTableBlocks(controlClean));
+  let html = marked.parse(normalizedBody, { gfm: true, breaks: false });
   html = fixRelativeMedia(html);
   const clean = DOMPurify.sanitize(html);
 
@@ -468,7 +522,7 @@ function renderMarkdown(p) {
       el.dataset.hl = "1";
     }
   });
-  // 外链点击 -> 通知 Swift 用系统浏览器打开
+  // 链接点击：外链用系统浏览器，本地文件（含相对路径）交给原生播放器/访达打开
   document.querySelectorAll("#content .md-body a").forEach(a => {
     if (!a.dataset.bound) {
       a.dataset.bound = "1";
@@ -477,6 +531,12 @@ function renderMarkdown(p) {
         if (/^https?:/i.test(href)) {
           ev.preventDefault();
           notify({ action: "openURL", url: href });
+          return;
+        }
+        // 本地文件：file:// / srfile:// 或相对路径（非锚点/mailto/data）
+        if (/^(file:|srfile:)/i.test(href) || !/^(#|mailto:|data:)/i.test(href)) {
+          ev.preventDefault();
+          notify({ action: "openFile", url: toSrfile(href) });
         }
       });
     }
