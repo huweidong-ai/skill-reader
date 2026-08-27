@@ -445,14 +445,13 @@ struct SkillRow: View {
                     state.clearContextTarget()
                     state.openFile(skill: skill, path: skill.entry ?? skill.path)
                 } label: {
-                    HStack(alignment: .top, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Image(systemName: "doc.text")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .frame(width: 16)
-                            .padding(.top, 4)
                         VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 5) {
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
                                 Text(skill.name)
                                     .font(.system(size: 13, weight: .semibold))
                                     .lineLimit(1)
@@ -501,19 +500,17 @@ struct SkillRow: View {
                     state.clearContextTarget()
                     state.toggleSkill(skill)
                 } label: {
-                    HStack(alignment: .top, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                             .font(.system(size: 9))
                             .foregroundStyle(.tertiary)
                             .frame(width: 10)
-                            .padding(.top, 4)
                         Image(systemName: "folder.fill")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .frame(width: 16)
-                            .padding(.top, 4)
                         VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 5) {
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
                                 Text(skill.name)
                                     .font(.system(size: 13, weight: .semibold))
                                     .lineLimit(1)
@@ -569,11 +566,13 @@ struct SkillRow: View {
                 if isExpanded {
                     if let tree {
                         FileTreeView(node: tree, skill: skill)
-                            .padding(.leading, 14)
+                            .padding(.leading, 46)
+                            .padding(.top, skill.description.isEmpty ? 4 : 0)
                     } else {
                         ProgressView()
                             .controlSize(.small)
-                            .padding(.leading, 30)
+                            .padding(.leading, 46)
+                            .padding(.top, skill.description.isEmpty ? 4 : 2)
                             .padding(.vertical, 4)
                             .onAppear { loadTree() }
                     }
@@ -663,7 +662,7 @@ struct DirNodeView: View {
                 state.clearContextTarget()
                 expanded.toggle()
             } label: {
-                HStack(spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 8))
                         .foregroundStyle(.tertiary)
@@ -731,7 +730,7 @@ struct FileRowView: View {
             state.clearContextTarget()
             state.openFile(skill: skill, path: node.path)
         } label: {
-            HStack(spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Image(systemName: node.kind.icon)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
