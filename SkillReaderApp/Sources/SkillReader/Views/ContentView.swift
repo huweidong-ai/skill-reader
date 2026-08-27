@@ -53,7 +53,7 @@ struct ContentView: View {
                     Image(systemName: state.sidebarVisible ? "sidebar.left" : "sidebar.right")
                         .font(.system(size: 14))
                 }
-                .help(state.sidebarVisible ? "隐藏导航栏" : "显示导航栏")
+                .help(state.sidebarVisible ? L10n.t("隐藏导航栏", "Hide sidebar") : L10n.t("显示导航栏", "Show sidebar"))
             }
         }
         .onExitCommand { state.backToEntry() }
@@ -131,11 +131,12 @@ struct DistributeSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("分发到平台")
+            Text(L10n.t("分发到平台", "Distribute to Platforms"))
                 .font(.headline)
 
             if let name = state.distributeSkillName {
-                Text("把「\(SkillDistributor.linkBasename(for: name))」以符号链接同步到以下 Agent 的 skills 目录。链接即同源：改中心库，各平台即时生效。")
+                Text(L10n.t("把「\(SkillDistributor.linkBasename(for: name))」以符号链接同步到以下 Agent 的 skills 目录。链接即同源：改中心库，各平台即时生效。",
+                              "Sync \"\(SkillDistributor.linkBasename(for: name))\" to the skills directories of the following Agents via symlinks. One source of truth: edit the library, all platforms update instantly."))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -143,7 +144,8 @@ struct DistributeSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
                     if platforms.isEmpty {
-                        Text("尚未纳入任何 Agent。请先在「配置 Agent」中勾选要管理的平台。")
+                        Text(L10n.t("尚未纳入任何 Agent。请先在「配置 Agent」中勾选要管理的平台。",
+                                    "No Agent added yet. Enable platforms in \"Configure Agent\" first."))
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                             .padding(.vertical, 8)
@@ -172,14 +174,15 @@ struct DistributeSheet: View {
 
             HStack {
                 if state.distributePlatforms.isEmpty, state.distributeSkillName != nil {
-                    Text("不勾选任何平台 = 取消该 skill 的分发")
+                    Text(L10n.t("不勾选任何平台 = 取消该 skill 的分发",
+                                "No platform selected = cancel this skill's distribution"))
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                 }
                 Spacer()
-                Button("取消") { state.distributeSkillName = nil }
+                Button(L10n.t("取消", "Cancel")) { state.distributeSkillName = nil }
                     .keyboardShortcut(.escape, modifiers: [])
-                Button("保存并同步") { state.saveDistribution() }
+                Button(L10n.t("保存并同步", "Save & Sync")) { state.saveDistribution() }
                     .keyboardShortcut(.return, modifiers: .command)
                     .buttonStyle(.borderedProminent)
                     .disabled(platforms.isEmpty)
@@ -240,7 +243,7 @@ struct BreadcrumbBar: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .disabled(!state.canEditCurrent)
-                .help(state.canEditCurrent ? "在系统编辑器中打开 (⌘E)" : "当前文件不可编辑")
+                .help(state.canEditCurrent ? L10n.t("在系统编辑器中打开 (⌘E)", "Open in system editor (⌘E)") : L10n.t("当前文件不可编辑", "Current file is not editable"))
 
                 Button {
                     state.shareActive()
@@ -251,7 +254,7 @@ struct BreadcrumbBar: View {
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
-                .help("分享：Finder 定位 + 复制路径 (⇧⌘S)")
+                .help(L10n.t("分享：Finder 定位 + 复制路径 (⇧⌘S)", "Share: Finder locate + copy path (⇧⌘S)"))
             } else {
                 Text("Skill Reader")
                     .fontWeight(.semibold)
@@ -281,7 +284,7 @@ struct SidebarView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
-                    TextField("搜索技能名 / 描述，回车全局搜索…", text: $state.searchText, onCommit: {
+                    TextField(L10n.t("搜索技能名 / 描述，回车全局搜索…", "Search skill name / description, ⏎ for global search…"), text: $state.searchText, onCommit: {
                         state.runSearch()
                     })
                     .textFieldStyle(.plain)
@@ -332,7 +335,7 @@ struct SidebarView: View {
                     }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
-                    .help("搜索 (⌘F)")
+                    .help(L10n.t("搜索 (⌘F)", "Search (⌘F)"))
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -358,7 +361,7 @@ struct SidebarView: View {
     private var rootName: String {
         guard let id = state.store.currentRootID,
               let root = state.store.roots.first(where: { $0.id == id }) else {
-            return "无技能库"
+            return L10n.t("无技能库", "No skill library")
         }
         return root.name
     }
@@ -383,12 +386,12 @@ struct SkillList: View {
             if state.filteredSkills.isEmpty {
                 VStack(spacing: 8) {
                     Text(state.searchText.isEmpty
-                         ? "没有可用的技能库"
-                         : "没有匹配的技能")
+                         ? L10n.t("没有可用的技能库", "No skill library available")
+                         : L10n.t("没有匹配的技能", "No matching skill"))
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                     if state.searchText.isEmpty {
-                        Text("请在「技能库」菜单中添加目录")
+                        Text(L10n.t("请在「技能库」菜单中添加目录", "Add a directory in the \"Skill Library\" menu"))
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                     }
@@ -430,7 +433,7 @@ struct SkillRow: View {
                                 Text(skill.name)
                                     .font(.system(size: 13, weight: .semibold))
                                     .lineLimit(1)
-                                badge("独立", accent: false)
+                                badge(L10n.t("独立", "Standalone"), accent: false)
                             }
                             if !skill.description.isEmpty {
                                 Text(skill.description)
@@ -460,15 +463,15 @@ struct SkillRow: View {
                     }
                 }
                 .contextMenu {
-                    Button("复制文件名") { state.copyItemName(skill: skill, rel: nil) }
-                    Button("复制文件路径") { state.copyItemPath(skill: skill, rel: nil) }
+                    Button(L10n.t("复制文件名", "Copy File Name")) { state.copyItemName(skill: skill, rel: nil) }
+                    Button(L10n.t("复制文件路径", "Copy File Path")) { state.copyItemPath(skill: skill, rel: nil) }
                     Divider()
-                    Button("复制副本") { state.duplicateItem(skill: skill, rel: nil) }
-                    Button("移入废纸篓") { state.trashItem(skill: skill, rel: nil) }
+                    Button(L10n.t("复制副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: nil) }
+                    Button(L10n.t("移入废纸篓", "Move to Trash")) { state.trashItem(skill: skill, rel: nil) }
                     Divider()
-                    Button("打开访达") { state.revealItem(skill: skill, rel: nil) }
+                    Button(L10n.t("打开访达", "Show in Finder")) { state.revealItem(skill: skill, rel: nil) }
                     Divider()
-                    Button("互通：复制到中心库并分发…") { state.copySkillToLibrary(skill) }
+                    Button(L10n.t("互通：复制到中心库并分发…", "Share: Copy to library & distribute…")) { state.copySkillToLibrary(skill) }
                 }
             } else {
                 Button {
@@ -492,7 +495,7 @@ struct SkillRow: View {
                                     .font(.system(size: 13, weight: .semibold))
                                     .lineLimit(1)
                                 if skill.kind == .package {
-                                    badge("包", accent: true)
+                                    badge(L10n.t("包", "Package"), accent: true)
                                 }
                                 if skill.stats.py > 0 {
                                     badge("py \(skill.stats.py)")
@@ -529,15 +532,15 @@ struct SkillRow: View {
                     }
                 }
                 .contextMenu {
-                    Button("复制文件名") { state.copyItemName(skill: skill, rel: nil) }
-                    Button("复制文件路径") { state.copyItemPath(skill: skill, rel: nil) }
+                    Button(L10n.t("复制文件名", "Copy File Name")) { state.copyItemName(skill: skill, rel: nil) }
+                    Button(L10n.t("复制文件路径", "Copy File Path")) { state.copyItemPath(skill: skill, rel: nil) }
                     Divider()
-                    Button("复制副本") { state.duplicateItem(skill: skill, rel: nil) }
-                    Button("移入废纸篓") { state.trashItem(skill: skill, rel: nil) }
+                    Button(L10n.t("复制副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: nil) }
+                    Button(L10n.t("移入废纸篓", "Move to Trash")) { state.trashItem(skill: skill, rel: nil) }
                     Divider()
-                    Button("打开访达") { state.revealItem(skill: skill, rel: nil) }
+                    Button(L10n.t("打开访达", "Show in Finder")) { state.revealItem(skill: skill, rel: nil) }
                     Divider()
-                    Button("互通：复制到中心库并分发…") { state.copySkillToLibrary(skill) }
+                    Button(L10n.t("互通：复制到中心库并分发…", "Share: Copy to library & distribute…")) { state.copySkillToLibrary(skill) }
                 }
 
                 if isExpanded {
@@ -661,13 +664,13 @@ struct DirNodeView: View {
                     .fill(rowBackground)
             )
             .contextMenu {
-                Button("复制文件名") { state.copyItemName(skill: skill, rel: node.path) }
-                Button("复制文件路径") { state.copyItemPath(skill: skill, rel: node.path) }
-                Divider()
-                Button("复制副本") { state.duplicateItem(skill: skill, rel: node.path) }
-                Button("移入废纸篓") { state.trashItem(skill: skill, rel: node.path) }
-                Divider()
-                Button("打开访达") { state.revealItem(skill: skill, rel: node.path) }
+            Button(L10n.t("复制文件名", "Copy File Name")) { state.copyItemName(skill: skill, rel: node.path) }
+            Button(L10n.t("复制文件路径", "Copy File Path")) { state.copyItemPath(skill: skill, rel: node.path) }
+            Divider()
+            Button(L10n.t("复制副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: node.path) }
+            Button(L10n.t("移入废纸篓", "Move to Trash")) { state.trashItem(skill: skill, rel: node.path) }
+            Divider()
+            Button(L10n.t("打开访达", "Show in Finder")) { state.revealItem(skill: skill, rel: node.path) }
             }
             .onHover { hovering in
                 isHovered = hovering
@@ -713,7 +716,7 @@ struct FileRowView: View {
                     .font(.system(size: 12))
                     .lineLimit(1)
                 if node.isEntry {
-                    Text("主")
+                    Text(L10n.t("主", "Main"))
                         .font(.system(size: 8))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 0.5)
@@ -746,13 +749,13 @@ struct FileRowView: View {
             }
         }
         .contextMenu {
-            Button("复制文件名") { state.copyItemName(skill: skill, rel: node.path) }
-            Button("复制文件路径") { state.copyItemPath(skill: skill, rel: node.path) }
+            Button(L10n.t("复制文件名", "Copy File Name")) { state.copyItemName(skill: skill, rel: node.path) }
+            Button(L10n.t("复制文件路径", "Copy File Path")) { state.copyItemPath(skill: skill, rel: node.path) }
             Divider()
-            Button("复制副本") { state.duplicateItem(skill: skill, rel: node.path) }
-            Button("移入废纸篓") { state.trashItem(skill: skill, rel: node.path) }
+            Button(L10n.t("复制副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: node.path) }
+            Button(L10n.t("移入废纸篓", "Move to Trash")) { state.trashItem(skill: skill, rel: node.path) }
             Divider()
-            Button("打开访达") { state.revealItem(skill: skill, rel: node.path) }
+            Button(L10n.t("打开访达", "Show in Finder")) { state.revealItem(skill: skill, rel: node.path) }
         }
         .onHover { hovering in
             isHovered = hovering
@@ -780,7 +783,7 @@ struct SearchResultList: View {
                     ProgressView().controlSize(.small).padding()
                 } else if let results = state.searchResults {
                     if results.isEmpty {
-                        Text("没有匹配的结果")
+                        Text(L10n.t("没有匹配的结果", "No matching results"))
                             .font(.system(size: 12))
                             .foregroundStyle(.tertiary)
                             .padding()
@@ -838,7 +841,7 @@ struct TocView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("目录")
+            Text(L10n.t("目录", "Contents"))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 12)

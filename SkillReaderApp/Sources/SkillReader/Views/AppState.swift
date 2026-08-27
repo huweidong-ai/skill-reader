@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 import WebKit
 
 // MARK: - 目录项
@@ -21,9 +22,9 @@ enum ThemeMode: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .auto: return "跟随系统"
-        case .light: return "浅色"
-        case .dark: return "深色"
+        case .auto:  return L10n.t("跟随系统", "System")
+        case .light: return L10n.t("浅色", "Light")
+        case .dark:  return L10n.t("深色", "Dark")
         }
     }
 
@@ -43,6 +44,12 @@ final class AppState: ObservableObject {
     static var shared: AppState?
 
     let store = SkillStore()
+
+    // ---- 语言刷新 ----
+    // L10n.t() 是全局函数，UserDefaults 变化不会自动让依赖 state 的视图重建；
+    // 这里监听并手动推送 objectWillChange，让所有视图重新取文案。
+    private var lastLanguage: String = L10n.override.rawValue
+    private var cancellables = Set<AnyCancellable>()
 
     // ---- 技能列表 / 搜索 ----
     @Published var skills: [Skill] = []
@@ -178,6 +185,19 @@ final class AppState: ObservableObject {
         }
         applyTheme()
         AppState.shared = self
+
+        // 语言变化监听：切换语言后让所有视图重新取 L10n.t 文案。
+        NotificationCenter.default
+            .publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                let current = L10n.override.rawValue
+                guard let self, current != self.lastLanguage else { return }
+                self.lastLanguage = current
+                self.objectWillChange.send()
+                self.applyWebViewLanguage()
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - 主题
@@ -188,7 +208,7 @@ final class AppState: ObservableObject {
         theme = mode
         UserDefaults.standard.set(mode.rawValue, forKey: "skillreader_theme")
         applyTheme()
-        flashToast("已切换为：\(mode.label)")
+        flashToast(L10n.t("已切换为：\(mode.label)", "Switched to: \(mode.label)"))
     }
 
     /// 应用主题到 AppKit 与 WKWebView（webReady 后生效）
@@ -204,6 +224,14 @@ final class AppState: ObservableObject {
         guard webReady, let webView else { return }
         // rawValue 为 auto/light/dark，仅含安全字符；直接嵌入 JS 字符串
         callJS("window.applyTheme(\"\(theme.rawValue)\")", on: webView)
+    }
+
+    /// 把当前语言推给 WebView 阅读器（欢迎页/加载态随语言切换）。
+    /// 仅在 WebView 就绪后调用；未就绪时 renderCurrent 的 welcome payload 已带语言。
+    func applyWebViewLanguage() {
+        guard webReady, let webView else { return }
+        let lang = L10n.isChinese ? "zh" : "en"
+        callJS("window.setLanguage(\"\(lang)\")", on: webView)
     }
 
     // MARK: - 首次 Agent 配置
@@ -280,13 +308,13 @@ final class AppState: ObservableObject {
         let src = (root as NSString).appendingPathComponent(skill.path)
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: src, isDirectory: &isDir) else {
-            flashToast("复制到中心库失败", isError: true)
+            flashToast(L10n.t("复制到中心库失败", "Failed to copy to library"), isError: true)
             return
         }
         let owner = ownerIdForCurrentRoot()
         let canonical = SkillDistributor.canonical(owner: owner, skill: skill.name)
         guard SkillDistributor.shared.importToLibrary(from: src, skillName: canonical) != nil else {
-            flashToast("复制到中心库失败", isError: true)
+            flashToast(L10n.t("复制到中心库失败", "Failed to copy to library"), isError: true)
             return
         }
         // 切到中心库查看，并打开分发 sheet（用 canonical 构造列表项）
@@ -299,7 +327,7 @@ final class AppState: ObservableObject {
                              entry: "SKILL.md", description: skill.description,
                              stats: skill.stats, modified: skill.modified)
         openDistribute(for: libSkill)
-        flashToast("已复制到中心库")
+        flashToast(L10n.t("已复制到中心库", "Copied to library"))
     }
 
     /// 保存分发配置并立即同步
@@ -314,13 +342,17 @@ final class AppState: ObservableObject {
         SkillDistributor.shared.saveConfig(config)
         let n = SkillDistributor.shared.syncAll()
         distributeSkillName = nil
-        flashToast(n > 0 ? "已分发到 \(n) 个平台" : "已保存（未分发到任何平台）")
+        flashToast(n > 0
+                   ? L10n.t("已分发到 \(n) 个平台", "Distributed to \(n) platform(s)")
+                   : L10n.t("已保存（未分发到任何平台）", "Saved (not distributed to any platform)"))
     }
 
     /// 手动全量同步（侧栏按钮）
     func syncDistribution() {
         let n = SkillDistributor.shared.syncAll()
-        flashToast(n > 0 ? "已同步 \(n) 个平台挂载" : "没有待分发的 skill")
+        flashToast(n > 0
+                   ? L10n.t("已同步 \(n) 个平台挂载", "Synced \(n) platform mount(s)")
+                   : L10n.t("没有待分发的 skill", "No skills pending distribution"))
     }
 
     // MARK: - 技能列表
@@ -387,7 +419,7 @@ final class AppState: ObservableObject {
     func openFile(skill: Skill, path: String) {
         exitExternalMode()
         guard let file = store.readFile(skillPath: skill.path, relPath: path) else {
-            flashToast("读取失败: 文件不存在", isError: true)
+            flashToast(L10n.t("读取失败: 文件不存在", "Read failed: file not found"), isError: true)
             return
         }
         activeSkill = skill
@@ -404,13 +436,13 @@ final class AppState: ObservableObject {
     func revealActiveFile() {
         if let ext = externalFile {
             _ = store.revealInFinder(path: ext.path)
-            flashToast("已在 Finder 中定位")
+            flashToast(L10n.t("已在 Finder 中定位", "Located in Finder"))
             return
         }
         guard let skill = activeSkill, let path = activePath,
               let abs = store.rawPath(skillPath: skill.path, relPath: path) else { return }
         _ = store.revealInFinder(path: abs)
-        flashToast("已在 Finder 中定位")
+        flashToast(L10n.t("已在 Finder 中定位", "Located in Finder"))
     }
 
     // MARK: - 右键菜单操作（复制副本 / 移入废纸篓 / 打开访达）
@@ -424,11 +456,11 @@ final class AppState: ObservableObject {
     func duplicateItem(skill: Skill, rel: String?) {
         guard let abs = absolutePath(skill: skill, rel: rel),
               let newPath = store.duplicateItem(at: abs) else {
-            flashToast("复制失败", isError: true)
+            flashToast(L10n.t("复制失败", "Copy failed"), isError: true)
             return
         }
         let name = (newPath as NSString).lastPathComponent
-        flashToast("已复制：\(name)")
+        flashToast(L10n.t("已复制：\(name)", "Copied: \(name)"))
         refreshAfterFileOp(skill: skill)
     }
 
@@ -437,16 +469,17 @@ final class AppState: ObservableObject {
         let name = (abs as NSString).lastPathComponent
         // 删除前确认（废纸篓可恢复）
         let alert = NSAlert()
-        alert.messageText = "移入废纸篓"
-        alert.informativeText = "确定将「\(name)」移入废纸篓吗？可从废纸篓恢复。"
-        alert.addButton(withTitle: "移入废纸篓")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = L10n.t("移入废纸篓", "Move to Trash")
+        alert.informativeText = L10n.t("确定将「\(name)」移入废纸篓吗？可从废纸篓恢复。",
+                                        "Move \"\(name)\" to Trash? You can recover it from Trash.")
+        alert.addButton(withTitle: L10n.t("移入废纸篓", "Move to Trash"))
+        alert.addButton(withTitle: L10n.t("取消", "Cancel"))
         if alert.runModal() == .alertFirstButtonReturn {
             guard store.trashItem(at: abs) else {
-                flashToast("删除失败", isError: true)
+                flashToast(L10n.t("删除失败", "Delete failed"), isError: true)
                 return
             }
-            flashToast("已移入废纸篓：\(name)")
+            flashToast(L10n.t("已移入废纸篓：\(name)", "Moved to Trash: \(name)"))
             refreshAfterFileOp(skill: skill)
         }
     }
@@ -454,7 +487,7 @@ final class AppState: ObservableObject {
     func revealItem(skill: Skill, rel: String?) {
         guard let abs = absolutePath(skill: skill, rel: rel) else { return }
         _ = store.revealInFinder(path: abs)
-        flashToast("已在 Finder 中定位")
+        flashToast(L10n.t("已在 Finder 中定位", "Located in Finder"))
     }
 
     /// 复制文件名（含扩展名）
@@ -463,19 +496,19 @@ final class AppState: ObservableObject {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(name, forType: .string)
-        flashToast("已复制文件名：\(name)")
+        flashToast(L10n.t("已复制文件名：\(name)", "Copied filename: \(name)"))
     }
 
     /// 复制文件绝对路径
     func copyItemPath(skill: Skill, rel: String?) {
         guard let abs = absolutePath(skill: skill, rel: rel) else {
-            flashToast("复制失败：无法定位路径", isError: true)
+            flashToast(L10n.t("复制失败：无法定位路径", "Copy failed: cannot locate path"), isError: true)
             return
         }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(abs, forType: .string)
-        flashToast("已复制路径")
+        flashToast(L10n.t("已复制路径", "Path copied"))
     }
 
     // MARK: - 编辑（在系统默认编辑器中打开）+ 分享（Finder 定位 + 复制路径）
@@ -497,13 +530,13 @@ final class AppState: ObservableObject {
     func openInEditor() {
         if let ext = externalFile {
             NSWorkspace.shared.open(ext)
-            flashToast("已在系统编辑器打开")
+            flashToast(L10n.t("已在系统编辑器打开", "Opened in system editor"))
             return
         }
         guard let skill = activeSkill, let path = activePath,
               let abs = store.rawPath(skillPath: skill.path, relPath: path) else { return }
         NSWorkspace.shared.open(URL(fileURLWithPath: abs))
-        flashToast("已在系统编辑器打开")
+        flashToast(L10n.t("已在系统编辑器打开", "Opened in system editor"))
     }
 
     /// 分享：Finder 定位 + 复制路径（无中间文件）
@@ -515,7 +548,8 @@ final class AppState: ObservableObject {
             pb.clearContents()
             pb.setString(abs, forType: .string)
             pb.writeObjects([ext] as [NSPasteboardWriting])
-            flashToast("已在 Finder 定位 + 已复制路径，可拖入任意目标")
+            flashToast(L10n.t("已在 Finder 定位 + 已复制路径，可拖入任意目标",
+                              "Located in Finder + path copied, drag into any target"))
             return
         }
         guard let skill = activeSkill, let path = activePath,
@@ -526,7 +560,8 @@ final class AppState: ObservableObject {
         // 文本路径 + fileURL 双重写入，拖到微信/AirDrop/AI 对话时可直接传文件
         pb.setString(abs, forType: .string)
         pb.writeObjects([URL(fileURLWithPath: abs)] as [NSPasteboardWriting])
-        flashToast("已在 Finder 定位 + 已复制路径，可拖入任意目标")
+        flashToast(L10n.t("已在 Finder 定位 + 已复制路径，可拖入任意目标",
+                          "Located in Finder + path copied, drag into any target"))
     }
 
     private func refreshAfterFileOp(skill: Skill) {
@@ -627,6 +662,7 @@ final class AppState: ObservableObject {
         guard let skill = activeSkill, let path = activePath,
               let file = currentFile, let abs = store.rawPath(skillPath: skill.path, relPath: path) else {
             payload["kind"] = "welcome"
+            payload["lang"] = L10n.isChinese ? "zh" : "en"
             callJS("window.renderSkill(\(jsonString(payload)))", on: webView)
             return
         }

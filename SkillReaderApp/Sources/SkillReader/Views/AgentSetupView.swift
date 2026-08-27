@@ -19,9 +19,9 @@ struct AgentSetupView: View {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .installed:  return "已安装"
-            case .candidates: return "候选"
-            case .custom:     return "自定义"
+            case .installed:  return L10n.t("已安装", "Installed")
+            case .candidates: return L10n.t("候选", "Candidates")
+            case .custom:     return L10n.t("自定义", "Custom")
             }
         }
     }
@@ -126,9 +126,11 @@ struct AgentSetupView: View {
 
     private var hintText: String {
         switch segment {
-        case .installed:  return "本机尚未检测到已安装的 Agent。可切到「候选」手动指定路径，或切到「自定义」添加。"
-        case .candidates: return "没有未配置的候选 Agent。"
-        case .custom:     return "还没有自定义 Agent，把文件夹拖到下方，或点虚线框选择文件夹自动添加。"
+        case .installed:  return L10n.t("本机尚未检测到已安装的 Agent。可切到「候选」手动指定路径，或切到「自定义」添加。",
+                                        "No installed Agent detected on this Mac. Switch to \"Candidates\" to set a path manually, or to \"Custom\" to add one.")
+        case .candidates: return L10n.t("没有未配置的候选 Agent。", "No unconfigured candidate Agent.")
+        case .custom:     return L10n.t("还没有自定义 Agent，把文件夹拖到下方，或点虚线框选择文件夹自动添加。",
+                                        "No custom Agent yet. Drag a folder below, or click the dashed box to pick a folder to add automatically.")
         }
     }
 
@@ -137,9 +139,10 @@ struct AgentSetupView: View {
             Image(systemName: "plus.circle")
                 .font(.system(size: 22))
                 .foregroundStyle(isDropTarget ? Color.srAccent : Color.secondary)
-            Text("拖文件夹到此，或点此选择文件夹，自动添加为自定义 Agent")
-                .font(.system(size: 12))
-                .foregroundStyle(isDropTarget ? Color.srAccent : .secondary)
+        Text(L10n.t("拖文件夹到此，或点此选择文件夹，自动添加为自定义 Agent",
+                    "Drop a folder here, or click to pick a folder to add as a custom Agent automatically"))
+            .font(.system(size: 12))
+            .foregroundStyle(isDropTarget ? Color.srAccent : .secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 22)
@@ -157,11 +160,11 @@ struct AgentSetupView: View {
     /// 点击拖拽区：弹出文件选择面板，选目录后自动创建自定义 Agent
     private func tapAddCustomFromPanel() {
         let panel = NSOpenPanel()
-        panel.title = "选择 Skills 目录"
+        panel.title = L10n.t("选择 Skills 目录", "Choose Skills Directory")
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "选择"
+        panel.prompt = L10n.t("选择", "Choose")
         if panel.runModal() == .OK, let url = panel.url, url.hasDirectoryPath {
             addCustomFromDrop(url: url)
         }
@@ -171,10 +174,11 @@ struct AgentSetupView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("配置要管理的 Agent")
+            Text(L10n.t("配置要管理的 Agent", "Configure Agents to Manage"))
                 .font(.system(size: 18, weight: .bold))
             HStack(spacing: 0) {
-                Text("勾选你本机安装的 Agent，SkillReader 会把它们的 skills 目录集中挂载到 ")
+                Text(L10n.t("勾选你本机安装的 Agent，SkillReader 会把它们的 skills 目录集中挂载到 ",
+                            "Check the Agents installed on this Mac; SkillReader mounts their skills directories to "))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                 Button {
@@ -186,7 +190,8 @@ struct AgentSetupView: View {
                         .underline()
                 }
                 .buttonStyle(.plain)
-                Text(" 下统一查看与管理。未自动识别的路径可手动修改。")
+                Text(L10n.t(" 下统一查看与管理。未自动识别的路径可手动修改。",
+                            " for unified browsing and management. Paths not auto-detected can be edited manually."))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -206,13 +211,13 @@ struct AgentSetupView: View {
 
             Spacer()
 
-            Button("稍后配置") {
+            Button(L10n.t("稍后配置", "Configure Later")) {
                 state.skipSetup()
             }
             .keyboardShortcut(.escape, modifiers: [])
             .buttonStyle(.bordered)
 
-            Button("完成配置") {
+            Button(L10n.t("完成配置", "Finish Setup")) {
                 state.finishSetup(agents)
             }
             .keyboardShortcut(.return, modifiers: .command)
@@ -228,7 +233,8 @@ struct AgentSetupView: View {
         let enabled = agents.filter { $0.enabled }.count
         let installed = agents.filter { $0.isInstalled }.count
         let totalSkills = agents.filter { $0.enabled }.reduce(0) { $0 + max($1.skillCount, 0) }
-        return "已选 \(enabled) / \(agents.count) 个 Agent · 本机已安装 \(installed) 个 · 共 \(totalSkills) 个 skill"
+        return L10n.t("已选 \(enabled) / \(agents.count) 个 Agent · 本机已安装 \(installed) 个 · 共 \(totalSkills) 个 skill",
+                       "\(enabled) / \(agents.count) Agents selected · \(installed) installed on this Mac · \(totalSkills) skills total")
     }
 
     // MARK: 自定义 Agent 表单
@@ -239,29 +245,30 @@ struct AgentSetupView: View {
 
     private var customSheet: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("添加自定义 Agent").font(.headline)
+            Text(L10n.t("添加自定义 Agent", "Add Custom Agent")).font(.headline)
 
-            Text("必填：选择 Skills 目录。名称默认取上一级文件夹名，可手动修改。")
+            Text(L10n.t("必填：选择 Skills 目录。名称默认取上一级文件夹名，可手动修改。",
+                        "Required: choose the Skills directory. The name defaults to the parent folder name and can be edited."))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Skills 目录").font(.system(size: 12, weight: .medium))
+                Text(L10n.t("Skills 目录", "Skills Directory")).font(.system(size: 12, weight: .medium))
                 HStack(spacing: 4) {
-                    TextField("例如 ~/.myagent/skills", text: $customPath)
+                    TextField(L10n.t("例如 ~/.myagent/skills", "e.g. ~/.myagent/skills"), text: $customPath)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 12))
                         .onChange(of: customPath) { _, _ in syncDerivedFields() }
-                    Button("浏览…") { pickCustomFolder() }
+                    Button(L10n.t("浏览…", "Browse…")) { pickCustomFolder() }
                 }
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Agent 名称").font(.system(size: 12, weight: .medium))
-                TextField("默认取上一级文件夹名", text: $customName)
+                Text(L10n.t("Agent 名称", "Agent Name")).font(.system(size: 12, weight: .medium))
+                TextField(L10n.t("默认取上一级文件夹名", "Defaults to parent folder name"), text: $customName)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
-                Text("ID：\(customId.isEmpty ? "—" : customId)")
+                Text(L10n.t("ID：\(customId.isEmpty ? "—" : customId)", "ID: \(customId.isEmpty ? "—" : customId)"))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .textSelection(.enabled)
@@ -269,9 +276,9 @@ struct AgentSetupView: View {
 
             HStack {
                 Spacer()
-                Button("取消") { resetCustomForm(); showCustomForm = false }
+                Button(L10n.t("取消", "Cancel")) { resetCustomForm(); showCustomForm = false }
                     .keyboardShortcut(.escape, modifiers: [])
-                Button("添加") { confirmAddCustom() }
+                Button(L10n.t("添加", "Add")) { confirmAddCustom() }
                     .keyboardShortcut(.return, modifiers: .command)
                     .buttonStyle(.borderedProminent)
                     .disabled(customPath.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -294,7 +301,7 @@ struct AgentSetupView: View {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         let parentName = url.deletingLastPathComponent().lastPathComponent
         if customName.isEmpty || customName == derivedName(from: customPath) {
-            customName = parentName.isEmpty ? "自定义" : parentName
+            customName = parentName.isEmpty ? L10n.t("自定义", "Custom") : parentName
         }
         customId = derivedID(from: parentName)
     }
@@ -314,11 +321,11 @@ struct AgentSetupView: View {
 
     private func pickCustomFolder() {
         let panel = NSOpenPanel()
-        panel.title = "选择 Skills 目录"
+        panel.title = L10n.t("选择 Skills 目录", "Choose Skills Directory")
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "选择"
+        panel.prompt = L10n.t("选择", "Choose")
         if !customPath.isEmpty {
             panel.directoryURL = URL(fileURLWithPath: customPath)
         }
@@ -344,7 +351,7 @@ struct AgentSetupView: View {
             ? derivedName(from: path)
             : customName
         let agent = AgentProfile(
-            id: id, name: name, vendor: "自定义",
+            id: id, name: name, vendor: L10n.t("自定义", "Custom"),
             iconName: "puzzlepiece.extension", skillPath: path,
             enabled: true, isCustom: true
         )
@@ -375,10 +382,10 @@ struct AgentSetupView: View {
     private func addCustomFromDrop(url: URL) {
         let path = url.path
         let parentName = url.deletingLastPathComponent().lastPathComponent
-        let name = parentName.isEmpty ? "自定义" : parentName
+        let name = parentName.isEmpty ? L10n.t("自定义", "Custom") : parentName
         let id = derivedID(from: name)
         let agent = AgentProfile(
-            id: id, name: name, vendor: "自定义",
+            id: id, name: name, vendor: L10n.t("自定义", "Custom"),
             iconName: "puzzlepiece.extension", skillPath: path,
             enabled: true, isCustom: true
         )
@@ -395,10 +402,11 @@ struct AgentSetupView: View {
     private func removeCustom(_ agent: AgentProfile) {
         // 二次确认：删除的是配置项与挂载点，不会动你原目录里的 skills 文件
         let alert = NSAlert()
-        alert.messageText = "删除自定义 Agent"
-        alert.informativeText = "确定删除「\(agent.name)」吗？它将从 SkillReader 管理中移除（仅移除配置与挂载，不会删除你原目录里的 skills 文件）。"
-        alert.addButton(withTitle: "删除")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = L10n.t("删除自定义 Agent", "Delete Custom Agent")
+        alert.informativeText = L10n.t("确定删除「\(agent.name)」吗？它将从 SkillReader 管理中移除（仅移除配置与挂载，不会删除你原目录里的 skills 文件）。",
+                                        "Delete \"\(agent.name)\"? It will be removed from SkillReader management (only config and mount are removed; the skills files in your original directory are untouched).")
+        alert.addButton(withTitle: L10n.t("删除", "Delete"))
+        alert.addButton(withTitle: L10n.t("取消", "Cancel"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         // 从列表移除；保存时 save() 会整体重建 ~/.agent/skills，对应符号链接自动清理
         if let idx = agents.firstIndex(where: { $0.id == agent.id }) {
@@ -414,11 +422,11 @@ struct AgentSetupView: View {
     }
 
     private func pickFolder(for agent: Binding<AgentProfile>) {        let panel = NSOpenPanel()
-        panel.title = "选择 Skills 目录"
+        panel.title = L10n.t("选择 Skills 目录", "Choose Skills Directory")
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "选择"
+        panel.prompt = L10n.t("选择", "Choose")
         let current = agent.wrappedValue.skillPath
         if !current.isEmpty {
             panel.directoryURL = URL(fileURLWithPath: current)
@@ -453,16 +461,16 @@ struct AgentRow: View {
                             Circle()
                                 .fill(installed ? Color.green : (agent.isCustom ? Color.blue.opacity(0.6) : Color.gray.opacity(0.5)))
                                 .frame(width: 6, height: 6)
-                            Text(installed ? "已安装" : (agent.isCustom ? "自定义" : "未安装"))
+                            Text(installed ? L10n.t("已安装", "Installed") : (agent.isCustom ? L10n.t("自定义", "Custom") : L10n.t("未安装", "Not installed")))
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                             if installed {
                                 let count = agent.skillCount
-                                Text(count > 0 ? "· \(count) 个 skill" : "· 暂无 skill")
+                                Text(count > 0 ? L10n.t("· \(count) 个 skill", "· \(count) skill(s)") : L10n.t("· 暂无 skill", "· No skill yet"))
                                     .font(.system(size: 11))
                                     .foregroundStyle(count > 0 ? .secondary : .tertiary)
                                 if agent.extraSkillPaths.count > 0 {
-                                    Text("· 多路径")
+                                    Text(L10n.t("· 多路径", "· Multi-path"))
                                         .font(.system(size: 11))
                                         .foregroundStyle(.tertiary)
                                 }
@@ -476,7 +484,7 @@ struct AgentRow: View {
                 // 候选（未安装、非自定义）：给出明确动作「去官网」
                 if !manageable, let urlStr = agent.vendorUrl, let url = URL(string: urlStr) {
                     Link(destination: url) {
-                        Text("去官网")
+                        Text(L10n.t("去官网", "Visit Site"))
                             .font(.system(size: 11))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
@@ -500,10 +508,10 @@ struct AgentRow: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
-                        .help("删除此自定义 Agent（取消添加）")
+                        .help(L10n.t("删除此自定义 Agent（取消添加）", "Delete this custom Agent (undo add)"))
                     }
 
-                    Text("纳入管理")
+                    Text(L10n.t("纳入管理", "Include in Management"))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                     Toggle("", isOn: $agent.enabled)
@@ -530,24 +538,26 @@ struct AgentRow: View {
             if expanded {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(agent.enabled
-                         ? "已纳入 SkillReader 管理，会挂载到 ~/.agent/skills 统一查看。"
-                         : "未纳入管理：关闭后该 Agent 的 skills 不会被读取。")
+                         ? L10n.t("已纳入 SkillReader 管理，会挂载到 ~/.agent/skills 统一查看。",
+                                 "Included in SkillReader management; mounted to ~/.agent/skills for unified browsing.")
+                         : L10n.t("未纳入管理：关闭后该 Agent 的 skills 不会被读取。",
+                                 "Not managed: with it off, this Agent's skills won't be read."))
                         .font(.system(size: 11))
                         .foregroundStyle(agent.enabled ? .secondary : .tertiary)
                     if !agent.isCustom {
-                        Text("Skills 目录").font(.system(size: 10)).foregroundStyle(.tertiary)
+                        Text(L10n.t("Skills 目录", "Skills Directory")).font(.system(size: 10)).foregroundStyle(.tertiary)
                     }
                     HStack(spacing: 4) {
                         TextField("", text: $agent.skillPath)
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 11))
-                        Button("浏览", action: onBrowse)
+                        Button(L10n.t("浏览", "Browse"), action: onBrowse)
                             .buttonStyle(.borderless)
                             .font(.system(size: 11))
                     }
                     if !agent.extraSkillPaths.isEmpty {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("额外 skill 路径")
+                            Text(L10n.t("额外 skill 路径", "Extra Skill Paths"))
                                 .font(.system(size: 10))
                                 .foregroundStyle(.tertiary)
                             ForEach(agent.extraSkillPaths, id: \.self) { p in
@@ -567,11 +577,11 @@ struct AgentRow: View {
                     }
                     if agent.isCustom {
                         HStack(spacing: 4) {
-                            TextField("显示名称", text: $agent.name)
+                            TextField(L10n.t("显示名称", "Display Name"), text: $agent.name)
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(size: 11))
                                 .frame(width: 140)
-                            TextField("ID", text: $agent.id)
+                            TextField(L10n.t("ID", "ID"), text: $agent.id)
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(size: 11))
                                 .disabled(true)

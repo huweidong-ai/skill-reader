@@ -507,9 +507,9 @@ function renderCode(p) {
       <div class="code-header">
         <span class="fname">${esc(p.name)}</span>
         <span class="flang">${esc(lang)}</span>
-        <span class="fsize">${esc(p.size)} · ${lines.length} 行</span>
+        <span class="fsize">${esc(p.size)} · ${trLines(lines.length)}</span>
         <span class="spacer"></span>
-        <button class="text-btn" onclick="copyText(${copyPayload})">复制代码</button>
+        <button class="text-btn" onclick="copyText(${copyPayload})">${tr("copyCode")}</button>
       </div>
       <div class="code-body">
         <div class="code-gutter">${gutter}</div>
@@ -549,7 +549,7 @@ function renderPlain(p) {
 }
 
 function renderUnsupported(p) {
-  const msg = p.tooLarge ? "文件过大（超过 2MB），无法直接预览" : "暂不支持预览该文件类型";
+  const msg = p.tooLarge ? tr("tooLarge") : tr("unsupported");
   document.getElementById("content").innerHTML = `
     <div class="unsupported">
       <div class="big">
@@ -557,7 +557,7 @@ function renderUnsupported(p) {
       </div>
       <div>${esc(p.name)}</div>
       <div style="margin-top:6px;color:var(--text-3)">${esc(msg)}</div>
-      <div style="margin-top:14px"><button class="text-btn" onclick="notify({action:'openRaw'})">在 Finder 中显示</button></div>
+      <div style="margin-top:14px"><button class="text-btn" onclick="notify({action:'openRaw'})">${tr("showInFinder")}</button></div>
     </div>`;
   notify({ action: "toc", items: [] });
 }
@@ -568,6 +568,46 @@ function renderSource(p) {
   notify({ action: "toc", items: [] });
 }
 
+// ---------- 多语言（Swift 通过 window.setLanguage 注入当前语言） ----------
+var __lang = "zh"; // 默认中文，启动后由 Swift 写入真实语言
+var I18N = {
+  zh: {
+    loading: "加载中…",
+    copyCode: "复制代码",
+    tooLarge: "文件过大（超过 2MB），无法直接预览",
+    unsupported: "暂不支持预览该文件类型",
+    showInFinder: "在 Finder 中显示",
+    welcomeTitle: "Skill Reader",
+    welcomeDesc: "浏览本机技能包：<b>SKILL.md</b> 渲染阅读、<b>references</b> 子文档、<b>scripts</b> 里 Python 等脚本高亮查看。",
+    welcomeHint: "从左侧选择一个技能开始阅读"
+  },
+  en: {
+    loading: "Loading…",
+    copyCode: "Copy code",
+    tooLarge: "File too large (over 2 MB) to preview directly",
+    unsupported: "Preview not supported for this file type",
+    showInFinder: "Show in Finder",
+    welcomeTitle: "Skill Reader",
+    welcomeDesc: "Browse local skill packages: render and read <b>SKILL.md</b>, <b>references</b> subdocs, and syntax-highlighted Python (and more) scripts in <b>scripts</b>.",
+    welcomeHint: "Select a skill from the left to start reading"
+  }
+};
+function tr(key) {
+  var dict = I18N[__lang] || I18N.zh;
+  return (key in dict) ? dict[key] : I18N.zh[key];
+}
+function trLines(n) {
+  return __lang === "en" ? (n + " line" + (n === 1 ? "" : "s")) : (n + " 行");
+}
+// Swift 在运行时切换语言时调用：记忆语言、刷新加载态、若正处于欢迎页则重绘
+window.setLanguage = function(lang) {
+  __lang = (lang === "en") ? "en" : "zh";
+  document.documentElement.lang = (__lang === "en") ? "en" : "zh-CN";
+  var loading = document.querySelector(".loading");
+  if (loading) loading.textContent = tr("loading");
+  if (document.querySelector(".welcome")) renderWelcome();
+};
+
 function renderWelcome() {
   document.getElementById("content").innerHTML = `
     <div class="welcome">
@@ -575,9 +615,9 @@ function renderWelcome() {
         <div class="welcome-logo">
           <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 5.4A2.4 2.4 0 0 1 6.6 3H20v15.2H6.6a2.4 2.4 0 0 0-2.4 2.4z"/><path d="M4.2 18.6a2.4 2.4 0 0 1 2.4-2.4H20"/></svg>
         </div>
-        <h2>Skill Reader</h2>
-        <p>浏览本机技能包：<b>SKILL.md</b> 渲染阅读、<b>references</b> 子文档、<b>scripts</b> 里 Python 等脚本高亮查看。</p>
-        <p class="welcome-hint">从左侧选择一个技能开始阅读</p>
+        <h2>${tr("welcomeTitle")}</h2>
+        <p>${tr("welcomeDesc")}</p>
+        <p class="welcome-hint">${tr("welcomeHint")}</p>
       </div>
     </div>`;
   notify({ action: "toc", items: [] });
@@ -606,7 +646,7 @@ window.applyTheme = function(mode) {
 window.renderSkill = function(p) {
   currentBaseDir = p.baseDir || "";
   document.body.className = ""; // 各 render 函数按需加特定视图 class
-  if (p.kind === "welcome") { renderWelcome(); return; }
+  if (p.kind === "welcome") { if (p.lang) __lang = (p.lang === "en") ? "en" : "zh"; renderWelcome(); return; }
   if (p.sourceMode && (p.kind === "md")) { renderSource(p); return; }
   switch (p.kind) {
     case "md": renderMarkdown(p); break;

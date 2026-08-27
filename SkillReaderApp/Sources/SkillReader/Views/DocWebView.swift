@@ -11,19 +11,19 @@ final class SrfileSchemeHandler: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
         guard let url = task.request.url, url.scheme == "srfile" else {
             task.didFailWithError(NSError(domain: "SrfileScheme", code: 1,
-                                          userInfo: [NSLocalizedDescriptionKey: "非法请求"]))
+                                          userInfo: [NSLocalizedDescriptionKey: L10n.t("非法请求", "Invalid request")]))
             return
         }
         let path = url.path
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), !isDir.boolValue else {
             task.didFailWithError(NSError(domain: "SrfileScheme", code: 2,
-                                          userInfo: [NSLocalizedDescriptionKey: "文件不存在: \(path)"]))
+                                          userInfo: [NSLocalizedDescriptionKey: L10n.t("文件不存在: \(path)", "File not found: \(path)")]))
             return
         }
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
             task.didFailWithError(NSError(domain: "SrfileScheme", code: 3,
-                                          userInfo: [NSLocalizedDescriptionKey: "读取失败: \(path)"]))
+                                          userInfo: [NSLocalizedDescriptionKey: L10n.t("读取失败: \(path)", "Read failed: \(path)")]))
             return
         }
         let ext = (path as NSString).pathExtension.lowercased()
@@ -109,6 +109,7 @@ struct DocWebView: NSViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             state.webReady = true
             state.applyTheme()
+            state.applyWebViewLanguage()
             if let url = state.pendingOpenURL {
                 state.pendingOpenURL = nil
                 state.openExternalFile(url)
@@ -142,6 +143,7 @@ struct DocWebView: NSViewRepresentable {
             case "ready":
                 state.webReady = true
                 state.applyTheme()
+                state.applyWebViewLanguage()
                 state.renderCurrent()
 
             case "toc":
@@ -161,7 +163,7 @@ struct DocWebView: NSViewRepresentable {
                 if let text = body["text"] as? String {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
-                    state.flashToast("已复制")
+                    state.flashToast(L10n.t("已复制", "Copied"))
                 }
 
             case "openURL":

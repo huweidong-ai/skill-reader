@@ -45,6 +45,15 @@ struct SkillReaderApp: App {
         }
     }
 
+    /// 语言菜单绑定：读写 L10n.override（落到 UserDefaults），AppState 监听
+    /// UserDefaults 变化推送 objectWillChange，切换后界面即时全量刷新。
+    private var languageBinding: Binding<L10n.Language> {
+        Binding(
+            get: { L10n.override },
+            set: { L10n.override = $0 }
+        )
+    }
+
     var body: some Scene {
         WindowGroup("Skill Reader") {
             rootView
@@ -54,17 +63,17 @@ struct SkillReaderApp: App {
         .defaultPosition(.center)
         .commands {
             CommandGroup(after: .sidebar) {
-                Button("显示 / 隐藏大纲") {
+                Button(L10n.t("显示 / 隐藏大纲", "Show / Hide Outline")) {
                     state.tocVisible.toggle()
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
 
-                Button(state.sourceMode ? "阅读模式" : "源码模式") {
+                Button(state.sourceMode ? L10n.t("阅读模式", "Reading Mode") : L10n.t("源码模式", "Source Mode")) {
                     state.toggleSourceMode()
                 }
                 .keyboardShortcut("/", modifiers: .command)
 
-                Button("返回主文档") {
+                Button(L10n.t("返回主文档", "Back to Main Doc")) {
                     state.backToEntry()
                 }
                 .keyboardShortcut(.escape, modifiers: [])
@@ -72,20 +81,20 @@ struct SkillReaderApp: App {
 
             // 文档操作（飞书风格：编辑 + 分享）
             CommandGroup(replacing: .newItem) {
-                Button("在编辑器中打开") {
+                Button(L10n.t("在编辑器中打开", "Open in Editor")) {
                     state.openInEditor()
                 }
                 .keyboardShortcut("e", modifiers: .command)
 
-                Button("分享…") {
+                Button(L10n.t("分享…", "Share…")) {
                     state.shareActive()
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
             }
 
             // 技能库管理（替代侧栏顶部的工具按钮组，与 编辑/显示/窗口 并列）
-            CommandMenu("技能库") {
-                Button("搜索…") {
+            CommandMenu(L10n.t("技能库", "Skill Library")) {
+                Button(L10n.t("搜索…", "Search…")) {
                     // 由 SidebarView 响应，这里只触发状态切换
                     NotificationCenter.default.post(name: .skillReaderToggleSearch, object: nil)
                 }
@@ -93,7 +102,7 @@ struct SkillReaderApp: App {
 
                 Divider()
 
-                Menu("切换根目录") {
+                Menu(L10n.t("切换根目录", "Switch Root")) {
                     ForEach(state.store.roots) { root in
                         Button {
                             state.switchRoot(id: root.id)
@@ -108,39 +117,39 @@ struct SkillReaderApp: App {
                     }
                 }
 
-                Button("刷新技能列表") {
+                Button(L10n.t("刷新技能列表", "Refresh Skill List")) {
                     state.reloadSkills()
-                    state.flashToast("已刷新")
+                    state.flashToast(L10n.t("已刷新", "Refreshed"))
                 }
                 .keyboardShortcut("r", modifiers: .command)
 
-                Button("同步：分发到已启用平台") {
+                Button(L10n.t("同步：分发到已启用平台", "Sync: Distribute to Enabled Platforms")) {
                     state.syncDistribution()
                 }
 
                 Divider()
 
-                Button("添加技能库目录…") {
+                Button(L10n.t("添加技能库目录…", "Add Skill Library…")) {
                     let panel = NSOpenPanel()
-                    panel.title = "选择技能库根目录"
+                    panel.title = L10n.t("选择技能库根目录", "Choose Skill Library Root")
                     panel.canChooseFiles = false
                     panel.canChooseDirectories = true
                     panel.allowsMultipleSelection = false
-                    panel.prompt = "添加"
+                    panel.prompt = L10n.t("添加", "Add")
                     if panel.runModal() == .OK, let url = panel.url {
                         state.store.addRoot(path: url.path)
                         state.switchRoot(id: state.store.currentRootID ?? "")
-                        state.flashToast("已添加技能库")
+                        state.flashToast(L10n.t("已添加技能库", "Skill library added"))
                     }
                 }
 
-                Button("配置 Agent…") {
+                Button(L10n.t("配置 Agent…", "Configure Agent…")) {
                     state.reopenSetup()
                 }
 
                 Divider()
 
-                Menu("主题") {
+                Menu(L10n.t("主题", "Theme")) {
                     ForEach(ThemeMode.allCases) { mode in
                         Button {
                             state.setTheme(mode)
@@ -153,6 +162,16 @@ struct SkillReaderApp: App {
                         }
                     }
                 }
+            }
+
+            // 语言（中/英），与「主题」平级
+            CommandMenu(L10n.t("语言", "Language")) {
+                Picker(L10n.t("语言", "Language"), selection: languageBinding) {
+                    ForEach(L10n.Language.allCases) { lang in
+                        Text(lang.displayName).tag(lang)
+                    }
+                }
+                .pickerStyle(.inline)
             }
         }
     }
