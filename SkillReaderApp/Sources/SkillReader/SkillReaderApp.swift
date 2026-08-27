@@ -143,7 +143,7 @@ struct SkillReaderApp: App {
                     }
                 }
 
-                Button(L10n.t("配置 Agent…", "Configure Agent…")) {
+                Button(L10n.t("配置 Agent", "Configure Agent")) {
                     state.reopenSetup()
                 }
 
@@ -162,16 +162,20 @@ struct SkillReaderApp: App {
                         }
                     }
                 }
-            }
 
-            // 语言（中/英），与「主题」平级
-            CommandMenu(L10n.t("语言", "Language")) {
-                Picker(L10n.t("语言", "Language"), selection: languageBinding) {
+                Menu(L10n.t("语言", "Language")) {
                     ForEach(L10n.Language.allCases) { lang in
-                        Text(lang.displayName).tag(lang)
+                        Button {
+                            L10n.override = lang
+                        } label: {
+                            if L10n.override == lang {
+                                Text(lang.displayName + " ✓")
+                            } else {
+                                Text(lang.displayName)
+                            }
+                        }
                     }
                 }
-                .pickerStyle(.inline)
             }
         }
     }
