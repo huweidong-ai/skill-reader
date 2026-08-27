@@ -1749,7 +1749,7 @@ function renderMarkdown(p) {
         <div class="fm-title">${esc(title)}</div>
         ${desc ? `<div class="fm-desc">${esc(String(desc))}</div>` : ""}
         ${chips ? `<div class="fm-chips">${chips}</div>` : ""}
-      </div>` : `<h1>${esc(title)}</h1>`}
+      </div>` : ""}
       <div class="md-content">${clean}</div>
     </article>`;
 

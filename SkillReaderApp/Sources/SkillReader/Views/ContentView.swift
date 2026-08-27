@@ -215,14 +215,14 @@ struct BreadcrumbBar: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                 Text(ext.lastPathComponent)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                 Spacer()
             } else if let skill = state.activeSkill {
                 Text(skill.name)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                 if let path = state.activePath, path != skill.entry {
                     Text("/")
