@@ -315,16 +315,39 @@ struct SidebarView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
             } else {
-                // 折叠态：左边根目录名，右边搜索图标
+                // 折叠态：左边根目录名（点击弹出下拉切换），右边搜索图标
                 HStack(spacing: 6) {
-                    Image(systemName: "folder")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                    Text(rootName)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
+                    Menu {
+                        ForEach(state.store.roots) { root in
+                            Button {
+                                state.switchRoot(id: root.id)
+                            } label: {
+                                if root.id == state.store.currentRootID {
+                                    Text(root.name + " ✓")
+                                } else {
+                                    Text(root.name)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "folder")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                            Text(rootName)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+
                     Spacer()
+
                     Button {
                         state.expandSearch()
                         searchFocus = true
@@ -391,7 +414,7 @@ struct SkillList: View {
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                     if state.searchText.isEmpty {
-                        Text(L10n.t("请在「技能库」菜单中添加目录", "Add a directory in the \"Skill Library\" menu"))
+                        Text(L10n.t("请在「设置」菜单中添加目录", "Add a directory in the \"Settings\" menu"))
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                     }
@@ -895,7 +918,7 @@ struct TocView: View {
     }
 }
 
-// MARK: - 主题切换菜单（已挪到顶部菜单栏「技能库 → 主题」）
+// MARK: - 主题切换菜单（已挪到顶部菜单栏「设置 → 主题」）
 
 // MARK: - Toast
 

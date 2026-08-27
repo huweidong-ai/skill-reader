@@ -92,8 +92,8 @@ struct SkillReaderApp: App {
                 .keyboardShortcut("s", modifiers: [.command, .shift])
             }
 
-            // 技能库管理（替代侧栏顶部的工具按钮组，与 编辑/显示/窗口 并列）
-            CommandMenu(L10n.t("技能库", "Skill Library")) {
+            // 设置（替代侧栏顶部的工具按钮组，与 编辑/显示/窗口 并列）
+            CommandMenu(L10n.t("设置", "Settings")) {
                 Button(L10n.t("搜索…", "Search…")) {
                     // 由 SidebarView 响应，这里只触发状态切换
                     NotificationCenter.default.post(name: .skillReaderToggleSearch, object: nil)
@@ -101,21 +101,6 @@ struct SkillReaderApp: App {
                 .keyboardShortcut("f", modifiers: .command)
 
                 Divider()
-
-                Menu(L10n.t("切换根目录", "Switch Root")) {
-                    ForEach(state.store.roots) { root in
-                        Button {
-                            state.switchRoot(id: root.id)
-                        } label: {
-                            // 当前选中项加勾标记
-                            if root.id == state.store.currentRootID {
-                                Text(root.name + " ✓")
-                            } else {
-                                Text(root.name)
-                            }
-                        }
-                    }
-                }
 
                 Button(L10n.t("刷新技能列表", "Refresh Skill List")) {
                     state.reloadSkills()
