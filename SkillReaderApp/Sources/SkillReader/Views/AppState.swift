@@ -835,7 +835,7 @@ final class AppState: ObservableObject {
     // MARK: - 根目录
 
     func switchRoot(id: String) {
-        store.currentRootID = id
+        store.setCurrentRootID(id)
         exitExternalMode()
         activeSkill = nil
         activePath = nil

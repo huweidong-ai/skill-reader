@@ -9,6 +9,7 @@ final class SkillStore: ObservableObject {
     @Published var currentRootID: String?
 
     private var rootPathByID: [String: String] = [:]
+    private static let currentRootPathKey = "skillreader.currentRootPath"
     private let maxTextSize = 2 * 1024 * 1024
     private let snippetRadius = 80
     private let skipDirs: Set<String> = [".git", ".hg", ".svn", "__pycache__", "node_modules",
@@ -102,12 +103,28 @@ final class SkillStore: ObservableObject {
         }
 
         self.roots = roots
-        if roots.isEmpty {
-            self.currentRootID = nil
-        } else if let cur = currentRootID, roots.contains(where: { $0.id == cur }) {
-            // 保持当前选择
+
+        // 优先恢复上次记住的根目录路径（root ID 每次加载会按顺序重算，不稳定）
+        let persistedPath = UserDefaults.standard.string(forKey: Self.currentRootPathKey)
+        let target: String?
+        if let p = persistedPath,
+           let found = roots.first(where: { ($0.path as NSString).standardizingPath == (p as NSString).standardizingPath }) {
+            target = found.id
+        } else if roots.isEmpty {
+            target = nil
         } else {
-            self.currentRootID = roots[0].id
+            target = roots[0].id
+        }
+        self.currentRootID = target
+    }
+
+    /// UI 切换根目录时调用：既设置 currentRootID，又把对应路径持久化到 UserDefaults
+    func setCurrentRootID(_ id: String?) {
+        currentRootID = id
+        if let id = id, let path = roots.first(where: { $0.id == id })?.path {
+            UserDefaults.standard.set(path, forKey: Self.currentRootPathKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.currentRootPathKey)
         }
     }
 
@@ -491,7 +508,7 @@ final class SkillStore: ObservableObject {
         addRoot(&existing, &seen, path)
         if existing.count != roots.count {
             roots = existing
-            currentRootID = roots.last?.id
+            setCurrentRootID(roots.last?.id)
         }
     }
 
@@ -499,7 +516,7 @@ final class SkillStore: ObservableObject {
         roots.removeAll { $0.id == id }
         rootPathByID[id] = nil
         if currentRootID == id {
-            currentRootID = roots.first?.id
+            setCurrentRootID(roots.first?.id)
         }
     }
 }
