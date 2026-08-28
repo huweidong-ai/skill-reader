@@ -61,6 +61,7 @@ struct SkillReaderApp: App {
         }
         .windowResizability(.contentMinSize)
         .defaultPosition(.center)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .commands {
             CommandGroup(after: .sidebar) {
                 Button(L10n.t("显示 / 隐藏大纲", "Show / Hide Outline")) {

@@ -44,7 +44,7 @@ struct ContentView: View {
         .frame(minWidth: state.sidebarDocked ? state.sidebarDockedMinWidth : 700,
                maxWidth: .infinity, minHeight: 560, maxHeight: .infinity)
         .overlay(alignment: .top) { ToastView() }
-        // 导航栏切换按钮放窗口标题栏（红绿灯右侧，macOS HIG / Safari 同款位置）
+        // 导航栏切换按钮与面包屑均放窗口标题栏（红绿灯同一行，Safari 同款）
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button {
@@ -54,6 +54,9 @@ struct ContentView: View {
                         .font(.system(size: 14))
                 }
                 .help(state.sidebarVisible ? L10n.t("隐藏导航栏", "Hide sidebar") : L10n.t("显示导航栏", "Show sidebar"))
+            }
+            ToolbarItem(placement: .principal) {
+                BreadcrumbBar()
             }
         }
         .onExitCommand { state.backToEntry() }
@@ -77,17 +80,13 @@ struct ContentView: View {
     // MARK: - 内容区（右侧）：面包屑 + 正文 + 可选大纲
 
     private var detail: some View {
-        VStack(spacing: 0) {
-            BreadcrumbBar()
-            Divider()
-            HStack(spacing: 0) {
-                DocWebView(state: state)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if state.tocVisible {
-                    Divider()
-                    TocView()
-                        .frame(width: 220)
-                }
+        HStack(spacing: 0) {
+            DocWebView(state: state)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if state.tocVisible {
+                Divider()
+                TocView()
+                    .frame(width: 220)
             }
         }
     }
@@ -263,9 +262,7 @@ struct BreadcrumbBar: View {
             }
         }
         .font(.system(size: 12))
-        .padding(.horizontal, 16)
-        .frame(height: 32)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .padding(.horizontal, 8)
     }
 }
 
@@ -397,7 +394,7 @@ struct SkillList: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 2) {
+            LazyVStack(spacing: 5) {
                 ForEach(state.filteredSkills) { skill in
                     SkillRow(skill: skill)
                 }
@@ -467,7 +464,7 @@ struct SkillRow: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 7)
+                    .padding(.vertical, 9)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -531,7 +528,7 @@ struct SkillRow: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 7)
+                    .padding(.vertical, 9)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -561,12 +558,12 @@ struct SkillRow: View {
                     if let tree {
                         FileTreeView(node: tree, skill: skill)
                             .padding(.leading, 46)
-                            .padding(.top, skill.description.isEmpty ? 6 : 2)
+                            .padding(.top, skill.description.isEmpty ? 8 : 4)
                     } else {
                         ProgressView()
                             .controlSize(.small)
                             .padding(.leading, 46)
-                            .padding(.top, skill.description.isEmpty ? 6 : 2)
+                            .padding(.top, skill.description.isEmpty ? 8 : 4)
                             .padding(.vertical, 4)
                             .onAppear { loadTree() }
                     }
@@ -626,7 +623,7 @@ struct FileTreeView: View {
     let skill: Skill
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 6) {
             ForEach(node.children) { child in
                 if child.isDir {
                     DirNodeView(node: child, skill: skill)
@@ -649,7 +646,7 @@ struct DirNodeView: View {
     private var isContextTarget: Bool { state.contextTarget == contextKey }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 3) {
             Button {
                 state.clearContextTarget()
                 expanded.toggle()
@@ -669,7 +666,7 @@ struct DirNodeView: View {
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 6)
-                .padding(.vertical, 3)
+                .padding(.vertical, 5)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -792,7 +789,7 @@ struct SearchResultList: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 2) {
+            LazyVStack(spacing: 5) {
                 if state.isSearching {
                     ProgressView().controlSize(.small).padding()
                 } else if let results = state.searchResults {
