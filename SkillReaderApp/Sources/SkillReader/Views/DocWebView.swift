@@ -123,21 +123,14 @@ struct DocWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            // 外链（http/https）一律交给系统浏览器
-            guard let url = navigationAction.request.url else {
-                decisionHandler(.allow)
-                return
-            }
-            switch url.scheme {
-            case "http", "https":
+            // 外链（http/https）一律交给系统浏览器；本地文件链接由 JS 侧 preventDefault 后走 openFile 消息
+            if let url = navigationAction.request.url,
+               url.scheme == "http" || url.scheme == "https" {
                 NSWorkspace.shared.open(url)
                 decisionHandler(.cancel)
-            case "file", "srfile":
-                // 本地文件链接交由 JS 消息（openFile）用原生播放器打开，WebView 不自行导航
-                decisionHandler(.cancel)
-            default:
-                decisionHandler(.allow)
+                return
             }
+            decisionHandler(.allow)
         }
 
         func userContentController(_ userContentController: WKUserContentController,
