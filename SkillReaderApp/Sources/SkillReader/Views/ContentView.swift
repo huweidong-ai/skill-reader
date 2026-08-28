@@ -475,7 +475,7 @@ struct SkillRow: View {
                 .overlay {
                     if isContextTarget {
                         RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                            .stroke(Color.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
                     }
                 }
                 .contextMenu {
@@ -539,7 +539,7 @@ struct SkillRow: View {
                 .overlay {
                     if isContextTarget {
                         RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                            .stroke(Color.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
                     }
                 }
                 .contextMenu {
