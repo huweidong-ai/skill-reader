@@ -467,7 +467,7 @@ struct SkillRow: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 7)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -475,13 +475,10 @@ struct SkillRow: View {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(rowBackground)
                 )
-                .overlay(alignment: .leading) {
-                    // 选中 / 右键目标：左侧竖条（参考 NavItem §6 选中态）
-                    if isActive || isContextTarget {
-                        Capsule()
-                            .fill(Color.srAccent)
-                            .frame(width: 2.5, height: 17)
-                            .offset(x: -3)
+                .overlay {
+                    if isContextTarget {
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
                     }
                 }
                 .contextMenu {
@@ -534,7 +531,7 @@ struct SkillRow: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 7)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -542,13 +539,10 @@ struct SkillRow: View {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(rowBackground)
                 )
-                .overlay(alignment: .leading) {
-                    // 选中 / 右键目标：左侧竖条（参考 NavItem §6 选中态）
-                    if isActive || isContextTarget {
-                        Capsule()
-                            .fill(Color.srAccent)
-                            .frame(width: 2.5, height: 17)
-                            .offset(x: -3)
+                .overlay {
+                    if isContextTarget {
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
                     }
                 }
                 .contextMenu {
@@ -567,12 +561,12 @@ struct SkillRow: View {
                     if let tree {
                         FileTreeView(node: tree, skill: skill)
                             .padding(.leading, 46)
-                            .padding(.top, skill.description.isEmpty ? 4 : 0)
+                            .padding(.top, skill.description.isEmpty ? 6 : 2)
                     } else {
                         ProgressView()
                             .controlSize(.small)
                             .padding(.leading, 46)
-                            .padding(.top, skill.description.isEmpty ? 4 : 2)
+                            .padding(.top, skill.description.isEmpty ? 6 : 2)
                             .padding(.vertical, 4)
                             .onAppear { loadTree() }
                     }
@@ -586,9 +580,7 @@ struct SkillRow: View {
     }
 
     private var rowBackground: Color {
-        if isContextTarget { return Color.srAccentSoft }
-        if isActive { return Color.srAccentSoft }
-        if isHovered { return Color(nsColor: .controlBackgroundColor).opacity(0.9) }
+        if isHovered { return Color(nsColor: .controlBackgroundColor).opacity(0.5) }
         return .clear
     }
 
@@ -634,7 +626,7 @@ struct FileTreeView: View {
     let skill: Skill
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 3) {
             ForEach(node.children) { child in
                 if child.isDir {
                     DirNodeView(node: child, skill: skill)
@@ -677,7 +669,7 @@ struct DirNodeView: View {
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 6)
-                .padding(.vertical, 2)
+                .padding(.vertical, 3)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -685,6 +677,12 @@ struct DirNodeView: View {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(rowBackground)
             )
+            .overlay {
+                if isContextTarget {
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                }
+            }
             .contextMenu {
             Button(L10n.t("复制文件名", "Copy File Name")) { state.copyItemName(skill: skill, rel: node.path) }
             Button(L10n.t("复制文件路径", "Copy File Path")) { state.copyItemPath(skill: skill, rel: node.path) }
@@ -707,8 +705,7 @@ struct DirNodeView: View {
     }
 
     private var rowBackground: Color {
-        if isContextTarget { return Color.srAccentSoft }
-        if isHovered { return Color(nsColor: .controlBackgroundColor).opacity(0.9) }
+        if isHovered { return Color(nsColor: .controlBackgroundColor).opacity(0.5) }
         return .clear
     }
 }
@@ -753,7 +750,7 @@ struct FileRowView: View {
                 }
             }
             .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.vertical, 3)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -761,13 +758,10 @@ struct FileRowView: View {
             RoundedRectangle(cornerRadius: 4)
                 .fill(rowBackground)
         )
-        .overlay(alignment: .leading) {
-            // 选中 / 右键目标：左侧竖条（参考 NavItem §6 选中态）
-            if isActive || isContextTarget {
-                Capsule()
-                    .fill(Color.srAccent)
-                    .frame(width: 2.5, height: 15)
-                    .offset(x: -3)
+        .overlay {
+            if isContextTarget {
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
             }
         }
         .contextMenu {
@@ -786,9 +780,7 @@ struct FileRowView: View {
     }
 
     private var rowBackground: Color {
-        if isContextTarget { return Color.srAccentSoft }
-        if isActive { return Color.srAccentSoft }
-        if isHovered { return Color(nsColor: .controlBackgroundColor).opacity(0.9) }
+        if isHovered { return Color(nsColor: .controlBackgroundColor).opacity(0.5) }
         return .clear
     }
 }
