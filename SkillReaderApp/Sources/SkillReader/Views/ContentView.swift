@@ -179,6 +179,10 @@ struct ContentView: View {
                         .frame(width: 220)
                 }
             }
+            // 稳定身份：FindBar 在 VStack 里条件性插入/移除会使此 HStack 的兄弟下标变化，
+            // 若不固定身份，SwiftUI 会把 DocWebView 当成新视图并重建 WKWebView，
+            // 导致渲染内容丢失、页内查找在空白页上「搜不出来」。固定 id 可避免重建。
+            .id("skillReaderContentHStack")
         }
     }
 

@@ -14,13 +14,25 @@ enum RenderSmoke {
         var codeCount = 0
         var hlDone = 0
 
+        // 接收页面回传消息（ready / findResult 等）。actor 安全：handler 里只写
+        // 线程安全容器，不触碰 AppState（AppState 为 @MainActor 隔离）。
+        let readyFlag = ReadyFlag()
+        let findCapture = FindResultCapture()
         let config = WKWebViewConfiguration()
         let controller = WKUserContentController()
-        let readyFlag = ReadyFlag()
-        // 注意：WKUserContentController 对 handler 是弱引用，必须强持有
         let smokeHandler = SmokeHandler { body in
-            if let dict = body as? [String: Any], dict["action"] as? String == "ready" {
+            guard let dict = body as? [String: Any],
+                  let action = dict["action"] as? String else { return }
+            switch action {
+            case "ready":
                 readyFlag.set()
+            case "findResult":
+                if let c = dict["count"] as? Int,
+                   let i = dict["index"] as? Int {
+                    findCapture.set(count: c, index: i)
+                }
+            default:
+                break
             }
         }
         controller.add(smokeHandler, name: "skillReader")
@@ -61,7 +73,7 @@ enum RenderSmoke {
         // 加载页面（自包含 render.html，readAccess 只需覆盖 bundle 目录）
         webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
 
-        // runloop 轮询等待 ready
+        // runloop 轮询等待 ready（页面 ready 消息触发 readyFlag）
         let deadline = Date().addingTimeInterval(15)
         while !readyFlag.isSet && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
@@ -157,6 +169,63 @@ enum RenderSmoke {
             print("✓ 渲染成功")
         } else {
             failures.append("页面仍显示加载中或为空")
+        }
+
+        // 端到端验证：window.findInPage → notify({action:"findResult"}) → 消息处理器
+        // （与 DocWebView.Coordinator 完全相同的契约）。这里用 actor 安全的 SmokeHandler
+        // 捕获回传，确认 findResult 能从 JS 正确回到 Swift 侧并携带 count / index。
+        // 这覆盖了「集成代码 → JS → 回传」整条链路的关键缺口。
+        do {
+            // 取页面首个英文词作为查询（与下方专项验证 C 一致）
+            let jsTerm = """
+            (function() {
+              var c = document.getElementById('content');
+              var t = c ? c.innerText || '' : '';
+              var m = t.match(/[A-Za-z]{3,}/);
+              return JSON.stringify({ term: m ? m[0] : null });
+            })()
+            """
+            var termDone = false
+            var term = ""
+            webView.evaluateJavaScript(jsTerm) { obj, _ in
+                if let s = obj as? String,
+                   let d = s.data(using: .utf8),
+                   let p = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                    term = p["term"] as? String ?? ""
+                }
+                termDone = true
+            }
+            let tDeadline = Date().addingTimeInterval(5)
+            while !termDone && Date() < tDeadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
+            if term.isEmpty {
+                print("E2E find: SKIP（页面无英文词，交给专项验证 C 兜底）")
+            } else {
+                findCapture.reset()
+                webView.evaluateJavaScript("window.findInPage(\(jsonStringForTest(term)), {})")
+                let fDeadline = Date().addingTimeInterval(5)
+                while findCapture.count <= 0 && Date() < fDeadline {
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+                }
+                print("E2E findResult via handler: count=\(findCapture.count), index=\(findCapture.index)")
+                if findCapture.count <= 0 {
+                    failures.append("findResult 回传失败：handler 未收到 count>0 的 findResult 消息")
+                } else {
+                    // 验证 next / close 的回传
+                    webView.evaluateJavaScript("window.findInPageNext()") { _, _ in }
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+                    let idxAfterNext = findCapture.index
+                    if idxAfterNext != 1 {
+                        failures.append("findInPageNext 未让 index 递增到 1（实际 \(idxAfterNext)）")
+                    }
+                    webView.evaluateJavaScript("window.findInPageClose()") { _, _ in }
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+                    if findCapture.count != 0 {
+                        failures.append("findInPageClose 未将 count 复位为 0")
+                    }
+                }
+            }
         }
 
         // 专项验证 A：跨块选择裁剪 —— 模拟从 p1 中段拖到 p2 中段（正向），mouseup 后
@@ -581,4 +650,34 @@ final class SmokeHandler: NSObject, WKScriptMessageHandler {
                                didReceive message: WKScriptMessage) {
         onMessage(message.body)
     }
+}
+
+// MARK: - findResult 回传捕获（线程安全）
+
+final class FindResultCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _count = -1
+    private var _index = -1
+    func set(count: Int, index: Int) {
+        lock.lock(); defer { lock.unlock() }
+        _count = count; _index = index
+    }
+    func reset() {
+        lock.lock(); defer { lock.unlock() }
+        _count = -1; _index = -1
+    }
+    var count: Int { lock.lock(); defer { lock.unlock() }; return _count }
+    var index: Int { lock.lock(); defer { lock.unlock() }; return _index }
+}
+
+// MARK: - 测试辅助
+
+func jsonStringForTest(_ obj: Any) -> String {
+    // NSJSONSerialization 不允许顶层为字符串，用数组包一层再去掉 [ ]，得到合法的 JSON 字符串字面量。
+    guard let data = try? JSONSerialization.data(withJSONObject: [obj], options: []),
+          let str = String(data: data, encoding: .utf8), str.count >= 2 else { return "\"\"" }
+    let inner = str.dropFirst().dropLast() // 去掉 [ ]
+    return String(inner)
+        .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+        .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
 }
