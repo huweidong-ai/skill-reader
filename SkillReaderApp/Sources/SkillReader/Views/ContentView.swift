@@ -60,31 +60,25 @@ struct ContentView: View {
             }
             ToolbarItem(placement: .automatic) {
                 HStack(spacing: 2) {
-                    Button {
+                    ToolbarIconButton(
+                        systemName: "pencil",
+                        help: state.canEditCurrent
+                            ? L10n.t("在系统编辑器中打开 (⌘E)", "Open in system editor (⌘E)")
+                            : L10n.t("当前文件不可编辑", "Current file is not editable"),
+                        disabled: !state.canEditCurrent
+                    ) {
                         state.openInEditor()
-                    } label: {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 14))
-                            .frame(width: 24, height: 24)
                     }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .disabled(!state.canEditCurrent)
-                    .help(state.canEditCurrent ? L10n.t("在系统编辑器中打开 (⌘E)", "Open in system editor (⌘E)") : L10n.t("当前文件不可编辑", "Current file is not editable"))
 
-                    Button {
+                    ToolbarIconButton(
+                        systemName: "square.and.arrow.up",
+                        help: L10n.t("分享：Finder 定位 + 复制路径 (⇧⌘S)", "Share: Finder locate + copy path (⇧⌘S)")
+                    ) {
                         state.shareActive()
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 14))
-                            .frame(width: 24, height: 24)
                     }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .help(L10n.t("分享：Finder 定位 + 复制路径 (⇧⌘S)", "Share: Finder locate + copy path (⇧⌘S)"))
 
                     // 设置：与菜单栏「设置」同内容，齿轮下拉，避免藏在菜单栏里找不到
-                    Menu {
+                    ToolbarIconMenu(help: L10n.t("设置", "Settings")) {
                         Button(L10n.t("搜索…", "Search…")) {
                             NotificationCenter.default.post(name: .skillReaderToggleSearch, object: nil)
                         }
@@ -127,15 +121,20 @@ struct ContentView: View {
                         }
                     } label: {
                         Image(systemName: "gearshape")
-                            .font(.system(size: 14))
-                            .frame(width: 24, height: 24)
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 26, height: 26)
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .help(L10n.t("设置", "Settings"))
                 }
+                .padding(3)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.16), lineWidth: 0.5)
+                )
             }
         }
         .onExitCommand { state.backToEntry() }
@@ -195,6 +194,76 @@ struct ContentView: View {
                 state.updateWindowWidth(frame.size.width)
             }
         }
+    }
+}
+
+// MARK: - 工具栏图标按钮（圆角胶囊按钮组）
+
+/// 统一尺寸、圆角背景、hover 加深，匹配参考图左侧胶囊工具栏风格。
+private struct ToolbarIconButton: View {
+    let systemName: String
+    let help: String
+    var disabled: Bool = false
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(disabled ? .tertiary : .secondary)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovered && !disabled ? 0.85 : 0))
+        )
+        .disabled(disabled)
+        .help(help)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
+/// 带下拉菜单的工具栏图标按钮，与普通按钮保持同款 hover 背景。
+private struct ToolbarIconMenu<Content: View, Label: View>: View {
+    @ViewBuilder let content: () -> Content
+    @ViewBuilder let label: () -> Label
+    let help: String
+
+    @State private var isHovered = false
+
+    init(
+        help: String,
+        @ViewBuilder content: @escaping () -> Content,
+        @ViewBuilder label: @escaping () -> Label
+    ) {
+        self.help = help
+        self.content = content
+        self.label = label
+    }
+
+    var body: some View {
+        Menu(content: content, label: label)
+            .buttonStyle(.plain)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovered ? 0.85 : 0))
+            )
+            .help(help)
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.12)) {
+                    isHovered = hovering
+                }
+            }
     }
 }
 
