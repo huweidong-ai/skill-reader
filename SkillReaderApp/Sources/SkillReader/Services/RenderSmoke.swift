@@ -104,10 +104,15 @@ enum RenderSmoke {
           var text = content ? content.innerText : '';
           var codeCount = content ? content.querySelectorAll('pre code').length : 0;
           var hlDone = content ? document.querySelectorAll('pre code[data-hl="1"]').length : 0;
-          return JSON.stringify({ textLen: text.length, codeCount: codeCount, hlDone: hlDone, text: text.slice(0, 600) });
+          var copyBtns = content ? content.querySelectorAll('.md-code .md-code-copy').length : 0;
+          var p = content ? content.querySelector('.md-content > p') : null;
+          var pUserSelect = p ? (getComputedStyle(p).webkitUserSelect || getComputedStyle(p).userSelect) : '';
+          return JSON.stringify({ textLen: text.length, codeCount: codeCount, hlDone: hlDone, copyBtns: copyBtns, pUserSelect: pUserSelect, text: text.slice(0, 600) });
         })()
         """
         var gotResult = false
+        var copyBtns = 0
+        var pUserSelect = ""
         webView.evaluateJavaScript(jsCheck) { obj, _ in
             if let s = obj as? String,
                let d = s.data(using: .utf8),
@@ -115,6 +120,8 @@ enum RenderSmoke {
                 renderText = parsed["text"] as? String ?? ""
                 codeCount = parsed["codeCount"] as? Int ?? 0
                 hlDone = parsed["hlDone"] as? Int ?? 0
+                copyBtns = parsed["copyBtns"] as? Int ?? 0
+                pUserSelect = parsed["pUserSelect"] as? String ?? ""
             }
             gotResult = true
         }
@@ -134,6 +141,15 @@ enum RenderSmoke {
         if codeCount > 0 && hlDone < codeCount {
             failures.append("代码高亮未完成 (\(hlDone)/\(codeCount))")
         }
+        // user-select: contain 在 WebKit 下会让双击选中整个段落（连空白一起复制），
+        // 已移除；这里确保它不再回归。
+        if pUserSelect == "contain" {
+            failures.append("user-select: contain 仍生效（会导致双击选中整段带空白）")
+        }
+        // Markdown 代码块应有悬停复制按钮
+        if codeCount > 0 && copyBtns < codeCount {
+            failures.append("Markdown 代码块缺少复制按钮 (\(copyBtns)/\(codeCount))")
+        }
         print("--- 页面文本预览 ---")
         print(renderText)
         print("--- end ---")
@@ -141,6 +157,106 @@ enum RenderSmoke {
             print("✓ 渲染成功")
         } else {
             failures.append("页面仍显示加载中或为空")
+        }
+
+        // 专项验证：跨块选择收口 —— 模拟从 p1 中段拖到 p2 中段（正向），mouseup 后
+        // 选区应收缩回锚点所在块 p1，且保留锚点（不从 p1 第一个字符开始整块全选）。
+        do {
+            let jsSetup = """
+            (function() {
+              try {
+                function firstText(p) {
+                  for (var n = p.firstChild; n; n = n.nextSibling) {
+                    if (n.nodeType === 3 && n.textContent.trim()) return n;
+                  }
+                  return null;
+                }
+                var ps = document.querySelectorAll('#content .md-content > p');
+                if (ps.length < 2) return JSON.stringify({setup: 'few-ps'});
+                var t1 = firstText(ps[0]), t2 = firstText(ps[1]);
+                if (!t1 || !t2) return JSON.stringify({setup: 'no-text'});
+                var sel = window.getSelection();
+                var r = document.createRange();
+                r.setStart(t1, Math.min(3, t1.textContent.length));
+                r.setEnd(t2, Math.min(3, t2.textContent.length));
+                sel.removeAllRanges(); sel.addRange(r);
+                document.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+                return JSON.stringify({setup: 'ok'});
+              } catch (e) { return JSON.stringify({setup: 'error', err: String(e)}); }
+            })()
+            """
+            var setupDone = false
+            var setupState = ""
+            webView.evaluateJavaScript(jsSetup) { obj, _ in
+                if let s = obj as? String,
+                   let d = s.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                    setupState = parsed["setup"] as? String ?? ""
+                }
+                setupDone = true
+            }
+            let sDeadline = Date().addingTimeInterval(5)
+            while !setupDone && Date() < sDeadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
+            if setupState == "ok" {
+                // 等收口 setTimeout(0) 执行
+                RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+                let jsVerify = """
+                (function() {
+                  var sel = window.getSelection();
+                  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return JSON.stringify({pass: false, why: 'no-selection'});
+                  var r = sel.getRangeAt(0);
+                  var nodeOf = function(n) { return n.nodeType === 3 ? n.parentElement : n; };
+                  var blockOf = function(el) {
+                    var n = el;
+                    while (n && n !== document.body) {
+                      var pp = n.parentElement;
+                      if (pp && (pp.classList.contains('md-content') || pp.classList.contains('md-body'))) return n;
+                      n = pp;
+                    }
+                    return null;
+                  };
+                  var sb = blockOf(nodeOf(r.startContainer)), eb = blockOf(nodeOf(r.endContainer));
+                  var same = sb && sb === eb;
+                  var p1 = document.querySelector('#content .md-content > p');
+                  var inP1 = sb && sb === p1;
+                  var t1 = p1 ? firstTextP1(p1) : null;
+                  var keptAnchor = !t1 || r.startContainer !== t1 || r.startOffset >= 1;
+                  function firstTextP1(p) {
+                    for (var n = p.firstChild; n; n = n.nextSibling) {
+                      if (n.nodeType === 3 && n.textContent.trim()) return n;
+                    }
+                    return null;
+                  }
+                  return JSON.stringify({pass: !!(same && inP1 && keptAnchor), sameBlock: !!same, inP1: !!inP1, keptAnchor: !!keptAnchor});
+                })()
+                """
+                var verifyDone = false
+                var verifyPass: Bool?
+                var verifyDetail = ""
+                webView.evaluateJavaScript(jsVerify) { obj, _ in
+                    if let s = obj as? String,
+                       let d = s.data(using: .utf8),
+                       let parsed = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                        verifyPass = parsed["pass"] as? Bool
+                        verifyDetail = "\(parsed)"
+                    }
+                    verifyDone = true
+                }
+                let vDeadline = Date().addingTimeInterval(5)
+                while !verifyDone && Date() < vDeadline {
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+                }
+                print("跨块选择收口: \(verifyDetail.isEmpty ? String(describing: verifyPass) : verifyDetail)")
+                if verifyPass != true {
+                    failures.append("跨块选择未正确收口（应收缩回锚点所在块且保留锚点）")
+                }
+            } else if setupState == "few-ps" || setupState == "no-text" {
+                print("跨块选择收口: SKIP（技能正文段落数不足）")
+            } else {
+                print("跨块选择收口: SKIP（setup=\(setupState)）")
+            }
         }
 
         // 专项验证：找一个含特殊字符（>&2、tab 缩进）的 bash 脚本，

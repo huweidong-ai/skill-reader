@@ -144,12 +144,61 @@ body.code-view .code-body { flex: 1 1 auto; max-height: none; }
 .md-body h2 { font-size: 21px; border-bottom: 1px solid var(--border); padding-bottom: .32em; }
 .md-body h3 { font-size: 17px; }
 .md-body h4 { font-size: 15px; }
-.md-body p { margin: .75em 0; line-height: 1.85; color: var(--text); }
+.md-body p { margin: .75em 0; line-height: 1.85; color: var(--text); text-wrap: pretty; }
+/* 正文首元素不吃大上边距，标题卡在正文顶部更紧凑 */
+.md-content > :first-child { margin-top: 0; }
 .md-body a { color: var(--link); text-decoration: none; cursor: pointer; }
 .md-body a:hover { text-decoration: underline; }
-.md-body ul, .md-body ol { margin: .75em 0; padding-left: 1.8em; line-height: 1.85; }
-.md-body li { margin: .28em 0; }
-.md-body li > ul, .md-body li > ol { margin: .2em 0; }
+
+/* 注意：不要在这里使用 user-select: contain。WebKit 的 contain 实现有明显怪癖——
+   双击段落会直接选中整个元素（连同文字右侧的空白区域一起高亮），复制时把块尾
+   空白/换行也带上，等于「选不中只有文字的部分」。跨块溢出改由下方 mouseup
+   收口逻辑兜底，选区粒度保持 WebKit 原生（双击选词、三击选段）。 */
+
+/* 选中高亮：半透明+圆角，柔化整行选中时的突兀感，但保持足够可见 */
+.md-body ::selection {
+  background: rgba(0, 122, 255, 0.25);
+  color: inherit;
+  border-radius: 4px;
+}
+html[data-theme="dark"] .md-body ::selection {
+  background: rgba(10, 132, 255, 0.38);
+  color: inherit;
+}
+.md-body ul, .md-body ol {
+  margin: .75em 0; padding-left: 0; line-height: 1.85;
+  display: block;
+  list-style: none;
+}
+.md-body li {
+  margin: .28em 0;
+  display: block;
+  position: relative;
+  padding-left: 1.5em;
+}
+/* 自定义列表标记；配合 ::selection 柔和高亮，跨列表项溢出由 mouseup 收口处理 */
+.md-body ul > li::before {
+  content: "•";
+  position: absolute; left: 0; top: .55em;
+  transform: translateY(-50%);
+  color: var(--text-2);
+}
+.md-body ol { counter-reset: sr-list; }
+.md-body ol > li { counter-increment: sr-list; }
+.md-body ol > li::before {
+  content: counter(sr-list) ".";
+  position: absolute; left: 0; top: .55em;
+  transform: translateY(-50%);
+  color: var(--text-2); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.md-body li > ul, .md-body li > ol {
+  margin: .2em 0; padding-left: 1.5em;
+  display: block;
+  list-style: none;
+}
+/* 任务列表不显示额外圆点 */
+.md-body li:has(> input[type="checkbox"])::before { display: none; }
 .md-body blockquote {
   margin: 1em 0; padding: .6em 1.1em; color: var(--text-2);
   border-left: 3px solid var(--accent); background: var(--accent-soft);
@@ -173,7 +222,7 @@ body.code-view .code-body { flex: 1 1 auto; max-height: none; }
   font-size: 13px; background: transparent; padding: 0; color: var(--code-text);
   user-select: text; -webkit-user-select: text;
 }
-/* Markdown 代码块：外层包裹 + 右上角复制按钮 */
+/* Markdown 代码块：外层包裹 + 右上角复制按钮（悬停时浮现，不干扰阅读） */
 .md-code { position: relative; margin: 1em 0; }
 .md-code .md-code-copy {
   position: absolute; top: 8px; right: 8px; z-index: 2;
@@ -181,7 +230,10 @@ body.code-view .code-body { flex: 1 1 auto; max-height: none; }
   border: 1px solid var(--border); background: var(--bg-sub);
   font-size: 11px; color: var(--text-2); cursor: pointer;
   font-family: inherit; transition: all .15s;
+  opacity: 0;
 }
+.md-code:hover .md-code-copy,
+.md-code .md-code-copy:focus-visible { opacity: 1; }
 .md-code .md-code-copy:hover { background: var(--bg-hover); color: var(--text); border-color: var(--border-strong); }
 /* 代码文件查看器也确保可选中 */
 .code-body, .code-body pre, .code-body pre code { user-select: text; -webkit-user-select: text; }
@@ -214,7 +266,7 @@ body.code-view .code-body { flex: 1 1 auto; max-height: none; }
   font-size: 12px; padding: 3px 10px; border-radius: 999px;
   background: var(--bg); border: 1px solid var(--border); color: var(--text-2);
 }
-.fm-chip b { color: var(--accent); font-weight: 600; margin-right: 5px; }
+.fm-chip b { color: var(--text); font-weight: 600; margin-right: 5px; }
 
 /* ---------- 代码查看器（深色代码块） ---------- */
 .code-view { max-width: 1000px; margin: 0 auto; }
@@ -526,6 +578,20 @@ function renderMarkdown(p) {
       el.dataset.hl = "1";
     }
   });
+  // 代码块外包 .md-code 容器 + 悬停复制按钮（按钮在 mouseup 收口范围内点击不受影响）
+  document.querySelectorAll("#content .md-body pre").forEach(pre => {
+    if (pre.closest(".md-code")) return;
+    const wrap = document.createElement("div");
+    wrap.className = "md-code";
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "md-code-copy";
+    btn.textContent = tr("copyCode");
+    btn.addEventListener("click", () => copyText(pre.innerText));
+    wrap.appendChild(btn);
+  });
   // 链接点击：外链用系统浏览器，本地文件（含相对路径）交给原生播放器/访达打开
   document.querySelectorAll("#content .md-body a").forEach(a => {
     if (!a.dataset.bound) {
@@ -727,6 +793,78 @@ window.scrollToHeading = function(id) {
   const el = document.getElementById(id);
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
 };
+
+// 选中范围收口：三击/拖动时，WebKit 常把相邻的块级元素（段落、列表项、标题、
+// 表格等）一起纳入选区。这里在 mouseup 后检测：若选区起点与终点落在不同「选择容器」
+// （li 或 .md-body 的直接子块），则收缩回用户按下鼠标（锚点）所在的单个容器。
+// 收缩时保留锚点位置——正向拖动 = 锚点→容器尾，反向拖动 = 容器首→锚点——
+// 而不是整块全选，避免把没选中的文字和块尾空白一起复制走。
+// 双击选词保持 WebKit 原生行为（不用 user-select: contain，见上方 CSS 注释）。
+function collapseToContainer(sel, container) {
+  if (!container) return;
+  // .md-code 是代码块的包裹层（含复制按钮），收口目标应落到其中的 pre，
+  // 否则整块全选会把按钮文字一起复制走。
+  if (container.classList && container.classList.contains("md-code")) {
+    container = container.querySelector("pre") || container;
+  }
+  const nr = document.createRange();
+  nr.selectNodeContents(container);
+  const an = sel.anchorNode;
+  if (an && container.contains(an)) {
+    // 判断拖动方向：锚点在文档序选区起点之前 = 正向拖动（按下处在前一个块）
+    const probe = document.createRange();
+    probe.setStart(an, sel.anchorOffset);
+    probe.setEnd(an, sel.anchorOffset);
+    if (probe.compareBoundaryPoints(window.Range.START_TO_START, sel.getRangeAt(0)) < 0) {
+      nr.setStart(an, sel.anchorOffset);   // 正向：锚点 → 容器尾
+    } else {
+      nr.setEnd(an, sel.anchorOffset);     // 反向：容器首 → 锚点
+    }
+  }
+  sel.removeAllRanges();
+  sel.addRange(nr);
+}
+
+document.addEventListener("mouseup", () => {
+  setTimeout(() => {
+    try {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+      const r = sel.getRangeAt(0);
+      const nodeOf = (n) => (n && n.nodeType === 3 ? n.parentElement : n);
+      const startEl = nodeOf(r.startContainer);
+      const endEl = nodeOf(r.endContainer);
+      const anchorEl = nodeOf(sel.anchorNode);
+
+      // 1) li 粒度：跨列表项时收缩回锚点所在 li
+      const startLi = startEl.closest("li");
+      const endLi = endEl.closest("li");
+      if (startLi && endLi && startLi !== endLi) {
+        collapseToContainer(sel, anchorEl.closest("li") || startLi);
+        return;
+      }
+
+      // 2) .md-content 直接子块粒度：跨段落/标题/表格/列表等时收缩回锚点所在块
+      // （正文结构是 article.md-body > div.md-content > p…，必须以 md-content 的
+      //   直接子元素为界；以前找「parent 带 md-body 类」会命中 md-content 这一层，
+      //   导致该收口从未生效。）
+      const outerBlock = (el) => {
+        let n = el;
+        while (n && n !== document.body) {
+          const p = n.parentElement;
+          if (p && (p.classList.contains("md-content") || p.classList.contains("md-body"))) return n;
+          n = p;
+        }
+        return null;
+      };
+      const startBlock = outerBlock(startEl);
+      const endBlock = outerBlock(endEl);
+      if (startBlock && endBlock && startBlock !== endBlock) {
+        collapseToContainer(sel, outerBlock(anchorEl) || startBlock);
+      }
+    } catch (e) { /* 忽略异常，保持原生选择 */ }
+  }, 0);
+}, true);
 
 // 初始加载完成通知
 document.addEventListener("DOMContentLoaded", () => {
