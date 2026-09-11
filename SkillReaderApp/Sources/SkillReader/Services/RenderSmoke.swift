@@ -159,28 +159,116 @@ enum RenderSmoke {
             failures.append("页面仍显示加载中或为空")
         }
 
-        // 专项验证：跨块选择收口 —— 模拟从 p1 中段拖到 p2 中段（正向），mouseup 后
-        // 选区应收缩回锚点所在块 p1，且保留锚点（不从 p1 第一个字符开始整块全选）。
+        // 专项验证 A：跨块选择裁剪 —— 模拟从 p1 中段拖到 p2 中段（正向），mouseup 后
+        // 选区应裁剪回锚点所在块 p1：起点精确停在锚点（不是 p1 开头整块全选），
+        // 终点不越过 p1 进入 p2。
         do {
             let jsSetup = """
             (function() {
               try {
                 function firstText(p) {
-                  for (var n = p.firstChild; n; n = n.nextSibling) {
-                    if (n.nodeType === 3 && n.textContent.trim()) return n;
-                  }
+                  var w = document.createTreeWalker(p, NodeFilter.SHOW_TEXT, null);
+                  var n;
+                  while ((n = w.nextNode())) { if (n.textContent.trim()) return n; }
                   return null;
                 }
                 var ps = document.querySelectorAll('#content .md-content > p');
                 if (ps.length < 2) return JSON.stringify({setup: 'few-ps'});
                 var t1 = firstText(ps[0]), t2 = firstText(ps[1]);
                 if (!t1 || !t2) return JSON.stringify({setup: 'no-text'});
+                window.__srT1 = t1;
+                window.__srOff = Math.min(3, t1.textContent.length);
                 var sel = window.getSelection();
                 var r = document.createRange();
-                r.setStart(t1, Math.min(3, t1.textContent.length));
+                r.setStart(t1, window.__srOff);
                 r.setEnd(t2, Math.min(3, t2.textContent.length));
                 sel.removeAllRanges(); sel.addRange(r);
                 document.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+                return JSON.stringify({setup: 'ok', off: window.__srOff});
+              } catch (e) { return JSON.stringify({setup: 'error', err: String(e)}); }
+            })()
+            """
+            var setupDone = false
+            var setupState = ""
+            webView.evaluateJavaScript(jsSetup) { obj, _ in
+                if let s = obj as? String,
+                   let d = s.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                    setupState = parsed["setup"] as? String ?? ""
+                }
+                setupDone = true
+            }
+            let sDeadline = Date().addingTimeInterval(5)
+            while !setupDone && Date() < sDeadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
+            if setupState == "ok" {
+                // 等 mouseup 收口的 setTimeout(0) 执行
+                RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+                let jsVerify = """
+                (function() {
+                  var sel = window.getSelection();
+                  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return JSON.stringify({pass: false, why: 'no-selection'});
+                  var r = sel.getRangeAt(0);
+                  var nodeOf = function(n) { return n.nodeType === 3 ? n.parentElement : n; };
+                  var blockOf = function(el) {
+                    var n = el;
+                    while (n && n !== document.body) {
+                      var pp = n.parentElement;
+                      if (pp && (pp.classList.contains('md-content') || pp.classList.contains('md-body'))) return n;
+                      n = pp;
+                    }
+                    return null;
+                  };
+                  var ps = document.querySelectorAll('#content .md-content > p');
+                  var p1 = ps[0], p2 = ps[1];
+                  var sb = blockOf(nodeOf(r.startContainer)), eb = blockOf(nodeOf(r.endContainer));
+                  var startAtAnchor = r.startContainer === window.__srT1 && r.startOffset === window.__srOff;
+                  var withinP1 = sb === p1 && eb === p1;
+                  var notWholeBlock = !(sb === p1 && r.startOffset === 0 && r.startContainer === p1);
+                  return JSON.stringify({
+                    pass: !!(startAtAnchor && withinP1 && notWholeBlock),
+                    startAtAnchor: !!startAtAnchor, withinP1: !!withinP1,
+                    textLen: sel.toString().length, p1Len: p1.textContent.length
+                  });
+                })()
+                """
+                var verifyDone = false
+                var verifyPass: Bool?
+                var verifyDetail = ""
+                webView.evaluateJavaScript(jsVerify) { obj, _ in
+                    if let s = obj as? String,
+                       let d = s.data(using: .utf8),
+                       let parsed = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                        verifyPass = parsed["pass"] as? Bool
+                        verifyDetail = "\(parsed)"
+                    }
+                    verifyDone = true
+                }
+                let vDeadline = Date().addingTimeInterval(5)
+                while !verifyDone && Date() < vDeadline {
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+                }
+                print("跨块选择裁剪: \(verifyDetail)")
+                if verifyPass != true {
+                    failures.append("跨块选择未正确裁剪到锚点所在块（应停在锚点且不越界）")
+                }
+            } else if setupState == "few-ps" || setupState == "no-text" {
+                print("跨块选择裁剪: SKIP（技能正文段落数不足）")
+            } else {
+                print("跨块选择裁剪: SKIP（setup=\(setupState)）")
+            }
+        }
+
+        // 专项验证 B：双击选中整段 —— 双击 p2 后，选区应覆盖该段全部文字，
+        // 且首尾不带空白（复制出来是干净文本），不越界到其它块。
+        do {
+            let jsSetup = """
+            (function() {
+              try {
+                var ps = document.querySelectorAll('#content .md-content > p');
+                if (ps.length < 2) return JSON.stringify({setup: 'few-ps'});
+                ps[1].dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
                 return JSON.stringify({setup: 'ok'});
               } catch (e) { return JSON.stringify({setup: 'error', err: String(e)}); }
             })()
@@ -200,10 +288,11 @@ enum RenderSmoke {
                 RunLoop.main.run(until: Date().addingTimeInterval(0.05))
             }
             if setupState == "ok" {
-                // 等收口 setTimeout(0) 执行
-                RunLoop.main.run(until: Date().addingTimeInterval(0.4))
                 let jsVerify = """
                 (function() {
+                 try {
+                  var ps = document.querySelectorAll('#content .md-content > p');
+                  var p2 = ps[1];
                   var sel = window.getSelection();
                   if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return JSON.stringify({pass: false, why: 'no-selection'});
                   var r = sel.getRangeAt(0);
@@ -217,30 +306,32 @@ enum RenderSmoke {
                     }
                     return null;
                   };
-                  var sb = blockOf(nodeOf(r.startContainer)), eb = blockOf(nodeOf(r.endContainer));
-                  var same = sb && sb === eb;
-                  var p1 = document.querySelector('#content .md-content > p');
-                  var inP1 = sb && sb === p1;
-                  var t1 = p1 ? firstTextP1(p1) : null;
-                  var keptAnchor = !t1 || r.startContainer !== t1 || r.startOffset >= 1;
-                  function firstTextP1(p) {
-                    for (var n = p.firstChild; n; n = n.nextSibling) {
-                      if (n.nodeType === 3 && n.textContent.trim()) return n;
-                    }
-                    return null;
-                  }
-                  return JSON.stringify({pass: !!(same && inP1 && keptAnchor), sameBlock: !!same, inP1: !!inP1, keptAnchor: !!keptAnchor});
+                  var got = sel.toString();
+                  // 段落内软换行在渲染/复制时表现为空格，比较时统一按空白归一，
+                  // 只校验文字内容一致 + 首尾无空白 + 不越界。
+                  var norm = function(s) { return s.replace(/\\s+/g, ' ').trim(); };
+                  var want = norm(p2.textContent);
+                  var inP2 = blockOf(nodeOf(r.startContainer)) === p2 && blockOf(nodeOf(r.endContainer)) === p2;
+                  var sameText = norm(got) === want;
+                  var noEdgeBlank = got === got.replace(/^\\s+/, '') && got === got.replace(/\\s+$/, '');
+                  return JSON.stringify({
+                    pass: !!(inP2 && sameText && noEdgeBlank),
+                    inP2: !!inP2, sameText: !!sameText, noEdgeBlank: !!noEdgeBlank,
+                    gotLen: got.length, wantLen: want.length
+                  });
+                 } catch (e) { return JSON.stringify({pass: false, err: String(e)}); }
                 })()
                 """
                 var verifyDone = false
                 var verifyPass: Bool?
                 var verifyDetail = ""
-                webView.evaluateJavaScript(jsVerify) { obj, _ in
+                webView.evaluateJavaScript(jsVerify) { obj, err in
+                    if let err { verifyDetail = "JS_ERROR: \(err.localizedDescription)" }
                     if let s = obj as? String,
                        let d = s.data(using: .utf8),
                        let parsed = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
-                        verifyPass = parsed["pass"] as? Bool
-                        verifyDetail = "\(parsed)"
+                        if verifyPass == nil { verifyPass = parsed["pass"] as? Bool }
+                        verifyDetail += "\(parsed)"
                     }
                     verifyDone = true
                 }
@@ -248,14 +339,14 @@ enum RenderSmoke {
                 while !verifyDone && Date() < vDeadline {
                     RunLoop.main.run(until: Date().addingTimeInterval(0.05))
                 }
-                print("跨块选择收口: \(verifyDetail.isEmpty ? String(describing: verifyPass) : verifyDetail)")
+                print("双击选中整段: \(verifyDetail)")
                 if verifyPass != true {
-                    failures.append("跨块选择未正确收口（应收缩回锚点所在块且保留锚点）")
+                    failures.append("双击未选中整段文字（应覆盖整段且首尾无空白）")
                 }
-            } else if setupState == "few-ps" || setupState == "no-text" {
-                print("跨块选择收口: SKIP（技能正文段落数不足）")
+            } else if setupState == "few-ps" {
+                print("双击选中整段: SKIP（技能正文段落数不足）")
             } else {
-                print("跨块选择收口: SKIP（setup=\(setupState)）")
+                print("双击选中整段: SKIP（setup=\(setupState)）")
             }
         }
 

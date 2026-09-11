@@ -2032,33 +2032,25 @@ window.scrollToHeading = function(id) {
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
 };
 
-// 选中范围收口：三击/拖动时，WebKit 常把相邻的块级元素（段落、列表项、标题、
-// 表格等）一起纳入选区。这里在 mouseup 后检测：若选区起点与终点落在不同「选择容器」
-// （li 或 .md-body 的直接子块），则收缩回用户按下鼠标（锚点）所在的单个容器。
-// 收缩时保留锚点位置——正向拖动 = 锚点→容器尾，反向拖动 = 容器首→锚点——
-// 而不是整块全选，避免把没选中的文字和块尾空白一起复制走。
-// 双击选词保持 WebKit 原生行为（不用 user-select: contain，见上方 CSS 注释）。
-function collapseToContainer(sel, container) {
+// 选中范围裁剪：三击/拖动时，WebKit 常把相邻的块级元素（段落、列表项、标题、
+// 表格等）一起纳入选区。这里在 mouseup 后检测：若选区横跨不同的「选择容器」
+// （li 或 .md-content 的直接子块），就把选区裁剪回用户按下鼠标（锚点）所在的容器。
+// 裁剪 = 逐边处理：原边界落在容器内就保留原边界，落在容器外才收到容器边界。
+// 这样三击选段仍是整段、从段中拖出仍是「从这里到段尾」，既不整块全选，
+// 也不会把块尾空白/换行带进剪贴板。
+// （不使用 user-select: contain —— WebKit 下它会让双击选中整个元素，见上方 CSS 注释。）
+function clipSelectionToContainer(sel, container) {
   if (!container) return;
-  // .md-code 是代码块的包裹层（含复制按钮），收口目标应落到其中的 pre，
-  // 否则整块全选会把按钮文字一起复制走。
+  // .md-code 是代码块的包裹层（含复制按钮），裁剪目标落到其中的 pre，
+  // 否则整块选中会把按钮文字一起复制走。
   if (container.classList && container.classList.contains("md-code")) {
     container = container.querySelector("pre") || container;
   }
+  const r = sel.getRangeAt(0);
   const nr = document.createRange();
   nr.selectNodeContents(container);
-  const an = sel.anchorNode;
-  if (an && container.contains(an)) {
-    // 判断拖动方向：锚点在文档序选区起点之前 = 正向拖动（按下处在前一个块）
-    const probe = document.createRange();
-    probe.setStart(an, sel.anchorOffset);
-    probe.setEnd(an, sel.anchorOffset);
-    if (probe.compareBoundaryPoints(window.Range.START_TO_START, sel.getRangeAt(0)) < 0) {
-      nr.setStart(an, sel.anchorOffset);   // 正向：锚点 → 容器尾
-    } else {
-      nr.setEnd(an, sel.anchorOffset);     // 反向：容器首 → 锚点
-    }
-  }
+  if (container.contains(r.startContainer)) nr.setStart(r.startContainer, r.startOffset);
+  if (container.contains(r.endContainer)) nr.setEnd(r.endContainer, r.endOffset);
   sel.removeAllRanges();
   sel.addRange(nr);
 }
@@ -2074,18 +2066,18 @@ document.addEventListener("mouseup", () => {
       const endEl = nodeOf(r.endContainer);
       const anchorEl = nodeOf(sel.anchorNode);
 
-      // 1) li 粒度：跨列表项时收缩回锚点所在 li
+      // 1) li 粒度：跨列表项时裁剪回锚点所在 li
       const startLi = startEl.closest("li");
       const endLi = endEl.closest("li");
       if (startLi && endLi && startLi !== endLi) {
-        collapseToContainer(sel, anchorEl.closest("li") || startLi);
+        clipSelectionToContainer(sel, anchorEl.closest("li") || startLi);
         return;
       }
 
-      // 2) .md-content 直接子块粒度：跨段落/标题/表格/列表等时收缩回锚点所在块
+      // 2) .md-content 直接子块粒度：跨段落/标题/表格/列表等时裁剪回锚点所在块
       // （正文结构是 article.md-body > div.md-content > p…，必须以 md-content 的
       //   直接子元素为界；以前找「parent 带 md-body 类」会命中 md-content 这一层，
-      //   导致该收口从未生效。）
+      //   导致这一级从未生效。）
       const outerBlock = (el) => {
         let n = el;
         while (n && n !== document.body) {
@@ -2098,11 +2090,48 @@ document.addEventListener("mouseup", () => {
       const startBlock = outerBlock(startEl);
       const endBlock = outerBlock(endEl);
       if (startBlock && endBlock && startBlock !== endBlock) {
-        collapseToContainer(sel, outerBlock(anchorEl) || startBlock);
+        clipSelectionToContainer(sel, outerBlock(anchorEl) || startBlock);
       }
     } catch (e) { /* 忽略异常，保持原生选择 */ }
   }, 0);
 }, true);
+
+// 双击选中整段：双击正文文本块时，把选区扩展到该块的全部文字，但不含块尾
+// 空白/换行——复制出来就是干净的段落文本，不会「总带上空白」。
+// 代码块（pre/code）与源码/纯文本视图内保持双击选词，方便只复制一个标识符；
+// 整块代码可用右上角「复制代码」按钮。
+function trimRangeToText(range, root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (t) => (/[^\s]/.test(t.textContent) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT)
+  });
+  const first = walker.nextNode();
+  if (!first) return;
+  let last = first, n;
+  while ((n = walker.nextNode())) last = n;
+  const startOffset = first.textContent.length - first.textContent.replace(/^\s+/, "").length;
+  const endOffset = last.textContent.replace(/\s+$/, "").length;
+  range.setStart(first, startOffset);
+  range.setEnd(last, endOffset);
+}
+
+document.addEventListener("dblclick", (ev) => {
+  try {
+    const sel = window.getSelection();
+    if (!sel) return;
+    const nodeOf = (n) => (n && n.nodeType === 3 ? n.parentElement : n);
+    const el = nodeOf(ev.target);
+    if (!el || !el.closest) return;
+    // 代码内保持双击选词
+    if (el.closest("pre, code, .code-body, .source-view, .plain-view")) return;
+    const block = el.closest("p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dt, dd");
+    if (!block || !block.closest(".md-body")) return;
+    const nr = document.createRange();
+    nr.selectNodeContents(block);
+    trimRangeToText(nr, block);
+    sel.removeAllRanges();
+    sel.addRange(nr);
+  } catch (e) { /* 忽略异常，保持原生行为 */ }
+});
 
 // 初始加载完成通知
 document.addEventListener("DOMContentLoaded", () => {
