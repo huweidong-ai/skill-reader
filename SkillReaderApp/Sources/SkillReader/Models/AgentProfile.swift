@@ -138,6 +138,47 @@ struct AgentProfile: Identifiable, Codable, Equatable {
         }
         return result
     }
+
+    /// 用于递归探测 skill 根的「基目录」：优先取首个已存在且为目录的安装探针
+    /// （排除 `.app` 包与 `cmd:` 命令探针），兜底取首个非 .app、非 cmd: 探针。
+    /// - 例：Trae 的探针为 `[~/.trae, /Applications/Trae.app]` → 基目录取 `~/.trae`，
+    ///   递归发现 `builtin_skills/`、`builtin/` 下的 skill 根。
+    var skillBaseDir: String? {
+        let fm = FileManager.default
+        // 优先：已存在且为目录的探针
+        for raw in installProbes where !raw.hasPrefix("cmd:") && !raw.hasSuffix(".app") {
+            let expanded = (raw as NSString).expandingTildeInPath
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: expanded, isDirectory: &isDir), isDir.boolValue {
+                return raw
+            }
+        }
+        // 兜底：首个非 .app、非 cmd: 探针
+        for raw in installProbes where !raw.hasPrefix("cmd:") && !raw.hasSuffix(".app") {
+            return raw
+        }
+        return nil
+    }
+
+    /// 主动递归探测：以基目录递归发现所有 skill 根，更新主路径与额外路径。
+    /// 用于「重新检测」按钮与纳入管理时的自动校正（如 Trae 的 skills 分散在
+    /// `builtin_skills/`、`builtin/`，单条硬编码 `skills` 路径兜不住）。
+    /// - OpenClaw 走专门的 `discoveredOpenClawPaths()`，保持 `~/.agents/skills` 等合并逻辑。
+    @MainActor
+    mutating func redetectSkillPaths() {
+        if id == "openclaw" {
+            let discovered = AgentRegistry.discoveredOpenClawPaths()
+            if let first = discovered.first {
+                skillPath = first
+                extraSkillPaths = Array(discovered.dropFirst())
+            }
+            return
+        }
+        guard let base = skillBaseDir else { return }
+        let (sp, extras) = SkillPathDiscovery.resolveAgentPaths(base: base, persistedExtras: extraSkillPaths)
+        skillPath = sp
+        extraSkillPaths = extras
+    }
 }
 
 // MARK: - Agent 注册中心（读写 ~/.agent 集中管理）
@@ -176,12 +217,12 @@ final class AgentRegistry: ObservableObject {
             AgentProfile(id: "claude-code", name: "Claude Code", vendor: "Anthropic", iconName: "brain",
                          logo: "claude-code", vendorUrl: "https://claude.com/product/claude-code",
                          installProbes: [p(".claude.json"), p(".claude")], skillPath: p(".claude/skills")),
-            // OpenClaw 真实 skill 在 workspace/skills，~/.openclaw/skills 多数为空
-            // 也共用 ~/.agents/skills（与 Claude Code 共享）
+            // OpenClaw 真实 skill 分散在 ~/.openclaw 下多处（skills、workspace/skills、
+            // workspace/<agent>/skills）。启动时递归发现；也包含与 Claude Code 共用的 ~/.agents/skills。
             AgentProfile(id: "openclaw", name: "OpenClaw", vendor: "开源", iconName: "shippingbox",
                          logo: "openclaw", vendorUrl: "https://openclaw.ai",
                          installProbes: [p(".openclaw")], skillPath: p(".openclaw/skills"),
-                         extraSkillPaths: [p(".openclaw/workspace/skills"), p(".agents/skills")]),
+                         extraSkillPaths: AgentRegistry.discoveredOpenClawPaths()),
             AgentProfile(id: "opencode", name: "OpenCode", vendor: "Anomaly", iconName: "curlybraces",
                          logo: "opencode", vendorUrl: "https://opencode.ai",
                          installProbes: [p(".config/opencode")], skillPath: p(".config/opencode/skills")),
@@ -222,7 +263,9 @@ final class AgentRegistry: ObservableObject {
 
     func loadOrSeed() {
         if let loaded = load() {
-            agents = loaded
+            // 加载后即时持久化并重建挂载点：这样 OpenClaw 动态发现的新 workspace/<agent>/skills
+            // 会立刻反映到 ~/.agent/skills，且 symlink 标签随代码升级而更新。
+            save(loaded)
         } else {
             // 首次启动：保持 agents 为空，让 needsSetup == true，显示 Agent 配置页
             agents = []
@@ -238,11 +281,56 @@ final class AgentRegistry: ObservableObject {
         // 仅对内置 Agent 按 id 补 installProbes；自定义 Agent 保持原样。
         let seedProbes = Dictionary(uniqueKeysWithValues: AgentRegistry.candidates().map { ($0.id, $0.installProbes) })
         return arr.map { agent in
-            guard !agent.isCustom, let probes = seedProbes[agent.id], !probes.isEmpty else { return agent }
+            guard !agent.isCustom else { return agent }
             var a = agent
-            if a.installProbes.isEmpty { a.installProbes = probes }
+            if a.id == "openclaw" {
+                a = AgentRegistry.mergeOpenClawPaths(a)
+            }
+            if let probes = seedProbes[agent.id], !probes.isEmpty, a.installProbes.isEmpty {
+                a.installProbes = probes
+            }
             return a
         }
+    }
+
+    /// OpenClaw 动态路径发现：扫描 ~/.openclaw 下所有 skill 根目录，并始终包含 ~/.agents/skills。
+    static func discoveredOpenClawPaths() -> [String] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let base = (home as NSString).appendingPathComponent(".openclaw")
+        let primary = (home as NSString).appendingPathComponent(".openclaw/skills")
+        let shared = (home as NSString).appendingPathComponent(".agents/skills")
+
+        let roots = SkillPathDiscovery.discoverRoots(under: base)
+        var extras = roots.filter { ($0 as NSString).standardizingPath != (primary as NSString).standardizingPath }
+
+        var seen = Set(extras.map { ($0 as NSString).standardizingPath })
+        seen.insert((primary as NSString).standardizingPath)
+
+        if FileManager.default.fileExists(atPath: shared) {
+            let real = (shared as NSString).standardizingPath
+            if seen.insert(real).inserted {
+                extras.append(shared)
+            }
+        }
+
+        return extras
+    }
+
+    /// 将持久化的 OpenClaw 配置与动态发现的路径合并，保留用户手动添加的额外路径。
+    static func mergeOpenClawPaths(_ agent: AgentProfile) -> AgentProfile {
+        guard agent.id == "openclaw" else { return agent }
+        var a = agent
+        let discovered = discoveredOpenClawPaths()
+        var seen = Set(discovered.map { ($0 as NSString).standardizingPath })
+        var merged = discovered
+        for raw in agent.extraSkillPaths {
+            let real = ((raw as NSString).expandingTildeInPath as NSString).standardizingPath
+            if seen.insert(real).inserted {
+                merged.append(raw)
+            }
+        }
+        a.extraSkillPaths = merged
+        return a
     }
 
     /// id -> 显示名，供 SkillStore 在扫描 ~/.agent/skills 时给 root 打标签
@@ -281,31 +369,72 @@ final class AgentRegistry: ObservableObject {
             // 收集所有「存在」的源路径（核心 + 额外），按稳定顺序去重
             var seen = Set<String>()
             var sources: [(label: String, path: String)] = []
-            let all = [("core", agent.skillPath)] + agent.extraSkillPaths.enumerated().map { ("extra\($0)", $1) }
-            for (label, raw) in all {
+            let all = [(agent.skillPath)] + agent.extraSkillPaths
+            for raw in all {
                 let path = (raw as NSString).expandingTildeInPath
                 var isDir: ObjCBool = false
                 guard fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { continue }
                 let real = (path as NSString).standardizingPath
-                if seen.insert(real).inserted {
-                    sources.append((label, real))
-                }
+                guard seen.insert(real).inserted else { continue }
+                let label = symlinkLabel(for: path, agent: agent, usedLabels: sources.map { $0.label })
+                sources.append((label, real))
             }
             // 单个源：直接单层 symlink（保持原有读取逻辑不变）
             if sources.count == 1 {
                 try? AgentRegistry.linkAgent(link: link, target: sources[0].path)
             } else if sources.count > 1 {
                 // 多路径：聚合目录 —— 在 <id>/ 下为每个源建立二级 symlink，
-                // 让 SkillStore 下钻一层即可读到所有来源的 skill（OpenClaw 多路径场景）。
+                // 使用相对路径作为标签，保留原始目录结构（如 skills / workspace/skills）。
                 try? fm.createDirectory(atPath: link, withIntermediateDirectories: true)
                 for (label, path) in sources {
                     let sub = (link as NSString).appendingPathComponent(label)
+                    let parent = (sub as NSString).deletingLastPathComponent
+                    if !fm.fileExists(atPath: parent) {
+                        try? fm.createDirectory(atPath: parent, withIntermediateDirectories: true)
+                    }
                     try? AgentRegistry.linkAgent(link: sub, target: path)
                 }
             }
             // sources.count == 0：本机未安装该 Agent（核心 + 额外路径都不存在），
             // 不建立空挂载点，避免 ~/.agent/skills 出现指向空目录的死链。
         }
+    }
+
+    /// 为挂载目录生成人类可读的二级目录名：
+    /// - 路径在 Agent 基目录（skillPath 父目录）下时，使用相对路径（如 skills、workspace/skills）；
+    /// - 路径在基目录外时，使用路径的简短 slug（如 .agents-skills）。
+    private func symlinkLabel(for path: String, agent: AgentProfile, usedLabels: [String]) -> String {
+        let fm = FileManager.default
+        let expandedSkill = (agent.skillPath as NSString).expandingTildeInPath
+        let base = (expandedSkill as NSString).deletingLastPathComponent
+        let realPath = (path as NSString).standardizingPath
+        let realBase = (base as NSString).standardizingPath
+
+        let label: String
+        if realPath.hasPrefix(realBase + "/") {
+            let rel = (realPath as NSString).substring(from: realBase.count + 1)
+            label = rel
+        } else {
+            // 路径在基目录外：生成简短 slug。优先用 ~/ 相对路径，去掉开头的 ~ 与尾空，
+            // 再把目录分隔符替换成 -，最终形如 "agents-skills"。
+            let home = fm.homeDirectoryForCurrentUser.path
+            var s = realPath
+            if s.hasPrefix(home + "/") {
+                s = (s as NSString).substring(from: home.count + 1)
+            }
+            s = s.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let safe = s.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" || $0 == "." ? Character($0) : "-" }
+            label = String(safe).trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        }
+
+        // 保证唯一性
+        var candidate = label
+        var suffix = 1
+        while usedLabels.contains(candidate) {
+            suffix += 1
+            candidate = "\(label)-\(suffix)"
+        }
+        return candidate.isEmpty ? "source" : candidate
     }
 
     /// 建立/重建单个 Agent 的符号链接（供测试与 rebuildSymlinks 复用）
@@ -328,6 +457,29 @@ final class AgentRegistry: ObservableObject {
 // MARK: - 运行时辅助
 
 extension AgentProfile {
+    /// 返回路径在 UI 上的简短标签：
+    /// - 在 skillPath 基目录（父目录）下时显示相对路径（如 skills、workspace/skills）；
+    /// - 在基目录外时显示 ~/... 缩写；
+    /// - 都失败则返回绝对路径。
+    func displayLabel(for path: String) -> String {
+        let fm = FileManager.default
+        let expandedSkill = (skillPath as NSString).expandingTildeInPath
+        let base = (expandedSkill as NSString).deletingLastPathComponent
+        let expandedPath = (path as NSString).expandingTildeInPath
+        let realBase = (base as NSString).standardizingPath
+        let realPath = (expandedPath as NSString).standardizingPath
+
+        if realPath.hasPrefix(realBase + "/") {
+            let rel = (realPath as NSString).substring(from: realBase.count + 1)
+            return rel
+        }
+        let home = fm.homeDirectoryForCurrentUser.path
+        if realPath.hasPrefix(home + "/") {
+            return "~" + (realPath as NSString).substring(from: home.count)
+        }
+        return realPath
+    }
+
     /// 探测 skill 数量：遍历所有 skillPath + extraSkillPaths，去重计数含 SKILL.md 的目录。
     /// 返回 -1 表示所有路径都不存在。
     var skillCount: Int {

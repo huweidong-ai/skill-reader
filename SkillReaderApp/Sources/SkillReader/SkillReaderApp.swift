@@ -93,6 +93,32 @@ struct SkillReaderApp: App {
                 .keyboardShortcut("s", modifiers: [.command, .shift])
             }
 
+            // 复制文件到剪贴板（⌘C）：把选中的文件/文件夹作为文件承诺写入剪贴板，
+            // 可粘贴到 Finder、聊天窗口、邮件等支持文件粘贴的目标；焦点在网页正文 / 文本框时走系统文字复制。
+            CommandGroup(replacing: .pasteboard) {
+                Button(L10n.t("剪切", "Cut")) {
+                    state.cutActive()
+                }
+                .keyboardShortcut("x", modifiers: .command)
+
+                Button(L10n.t("复制", "Copy")) {
+                    state.copyActiveFile()
+                }
+                .keyboardShortcut("c", modifiers: .command)
+
+                Button(L10n.t("粘贴", "Paste")) {
+                    state.forwardEdit(#selector(NSText.paste(_:)))
+                }
+                .keyboardShortcut("v", modifiers: .command)
+
+                // 网页正文 / 文本框内 ⌘A 全选（WKWebView 与 NSText 实现 selectAll:），
+                // 焦点在文件树 / 工具栏时不拦截，避免误触。
+                Button(L10n.t("全选", "Select All")) {
+                    state.forwardEdit(#selector(NSText.selectAll(_:)))
+                }
+                .keyboardShortcut("a", modifiers: .command)
+            }
+
             // 设置（替代侧栏顶部的工具按钮组，与 编辑/显示/窗口 并列）
             CommandMenu(L10n.t("设置", "Settings")) {
                 Button(L10n.t("搜索…", "Search…")) {
@@ -103,34 +129,19 @@ struct SkillReaderApp: App {
 
                 Divider()
 
-                Button(L10n.t("刷新技能列表", "Refresh Skill List")) {
+                Button(L10n.t("重新加载技能", "Reload Skills")) {
                     state.reloadSkills()
                     state.flashToast(L10n.t("已刷新", "Refreshed"))
                 }
                 .keyboardShortcut("r", modifiers: .command)
 
-                Button(L10n.t("同步：分发到已启用平台", "Sync: Distribute to Enabled Platforms")) {
-                    state.syncDistribution()
-                }
-
-                Divider()
-
-                Button(L10n.t("添加技能库目录…", "Add Skill Library…")) {
-                    let panel = NSOpenPanel()
-                    panel.title = L10n.t("选择技能库根目录", "Choose Skill Library Root")
-                    panel.canChooseFiles = false
-                    panel.canChooseDirectories = true
-                    panel.allowsMultipleSelection = false
-                    panel.prompt = L10n.t("添加", "Add")
-                    if panel.runModal() == .OK, let url = panel.url {
-                        state.store.addRoot(path: url.path)
-                        state.switchRoot(id: state.store.currentRootID ?? "")
-                        state.flashToast(L10n.t("已添加技能库", "Skill library added"))
-                    }
-                }
-
-                Button(L10n.t("配置 Agent", "Configure Agent")) {
+                Button(L10n.t("配置 skill 源", "Configure Skill Sources")) {
                     state.reopenSetup()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+
+                Button(L10n.t("同步分发到已启用智能体", "Sync Distribute to Enabled Agents")) {
+                    state.syncDistribution()
                 }
 
                 Divider()
@@ -171,7 +182,8 @@ struct SkillReaderApp: App {
         if CommandLine.arguments.contains("--render-smoke") {
             // smoke 模式：不创建 ContentView（避免与测试 WebView 冲突）
             EmptyView().frame(width: 1, height: 1)
-        } else if state.needsSetup {
+        } else if state.needsSetup || CommandLine.arguments.contains("--force-setup") {
+            // --force-setup：开发自验用，直接拉起配置页（不写配置、不重建 ~/.agent）
             AgentSetupView()
                 .environmentObject(state)
                 .frame(minWidth: 780, minHeight: 560)

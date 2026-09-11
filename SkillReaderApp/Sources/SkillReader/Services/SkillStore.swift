@@ -55,9 +55,10 @@ final class SkillStore: ObservableObject {
             }
         }
 
-        // 0b. ~/.agent/library 中心库（skill 互通分发源）：库内 skill 可分发到各平台
+        // 0b. ~/.agent/library 中心库（skill 互通分发源）：库内 skill 可分发到各平台。
+        // 中心库不显示在顶部 root 切换菜单中，避免与 Agent 技能源并列造成混淆。
         let library = (home as NSString).appendingPathComponent(".agent/library")
-        addRoot(&roots, &seen, library, label: L10n.t("中心库", "Library"), idPrefix: "l")
+        addRoot(&roots, &seen, library, label: L10n.t("中心库", "Library"), idPrefix: "l", isLibrary: true)
 
         // 1. 兜底：尚未配置 ~/.agent 时，沿用原逻辑（保证首次也有数据可读）
         if roots.isEmpty {
@@ -115,7 +116,17 @@ final class SkillStore: ObservableObject {
         } else {
             target = roots[0].id
         }
-        self.currentRootID = target
+
+        // 中心库作为后台分发源，不显示在顶部 root 切换菜单中，
+        // 因此也不应成为默认/记住的当前 root。
+        if let target = target,
+           let targetRoot = roots.first(where: { $0.id == target }),
+           targetRoot.isLibrary,
+           let firstVisible = roots.first(where: { !$0.isLibrary }) {
+            setCurrentRootID(firstVisible.id)
+        } else {
+            self.currentRootID = target
+        }
     }
 
     /// UI 切换根目录时调用：既设置 currentRootID，又把对应路径持久化到 UserDefaults
@@ -129,7 +140,7 @@ final class SkillStore: ObservableObject {
     }
 
     private func addRoot(_ roots: inout [RootInfo], _ seen: inout Set<String>, _ path: String,
-                         label: String? = nil, idPrefix: String = "r") {
+                         label: String? = nil, idPrefix: String = "r", isLibrary: Bool = false) {
         let expanded = (path as NSString).expandingTildeInPath
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: expanded, isDirectory: &isDir), isDir.boolValue else { return }
@@ -137,7 +148,7 @@ final class SkillStore: ObservableObject {
         guard !seen.contains(real) else { return }
         seen.insert(real)
         let id = "\(idPrefix)\(roots.count)"
-        roots.append(RootInfo(id: id, path: real, label: label))
+        roots.append(RootInfo(id: id, path: real, label: label, isLibrary: isLibrary))
         rootPathByID[id] = real
     }
 
@@ -151,17 +162,19 @@ final class SkillStore: ObservableObject {
     func listSkills() -> [Skill] {
         guard let root = currentRootPath else { return [] }
         var collected: [Skill] = []
-        // 顶层按原逻辑收集；遇到「聚合层」（目录本身不是 skill 包，
-        // 用于容纳多路径 symlink）则下钻一层，把各来源的 skill 收上来。
-        collectSkills(in: root, into: &collected, topLevel: true)
+        // 收集 root 下所有 skill；遇到「聚合层」（目录本身不是 skill 包，
+        // 用于容纳多路径 symlink，如 OpenClaw 的 core/extra0/extra1）则下钻，
+        // 并保留相对 root 的完整路径（如 extra0/mac-camera-capture）。
+        collectSkills(in: root, relToRoot: "", into: &collected)
         return dedupeSkills(collected)
     }
 
-    private func collectSkills(in dir: String, into collected: inout [Skill], topLevel: Bool) {
+    private func collectSkills(in dir: String, relToRoot: String, into collected: inout [Skill]) {
         let entries = (try? FileManager.default.contentsOfDirectory(atPath: dir).sorted()) ?? []
         for name in entries {
             if name.hasPrefix(".") || skipDirs.contains(name) { continue }
             let full = (dir as NSString).appendingPathComponent(name)
+            let rel = relToRoot.isEmpty ? name : (relToRoot as NSString).appendingPathComponent(name)
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: full, isDirectory: &isDir) else { continue }
             if isDir.boolValue {
@@ -169,18 +182,18 @@ final class SkillStore: ObservableObject {
                 // 自身是 skill 包（含 SKILL.md）
                 let entryPath = (full as NSString).appendingPathComponent("SKILL.md")
                 if FileManager.default.fileExists(atPath: entryPath) {
-                    collected.append(scanPackage(root: dir, name: name, full: full))
-                } else if topLevel {
-                    // 聚合层（如 OpenClaw 多路径挂载）：下钻一层找 skill
-                    // 但首先：如果该目录自身含有 skill 文件，则当作无 SKILL.md 的 skill 包处理
+                    collected.append(scanPackage(root: dir, name: name, relPath: rel, full: full))
+                } else {
+                    // 聚合层（如 OpenClaw 多路径挂载）：先判断是不是「无 SKILL.md 的 skill 包」；
+                    // 否则下钻一层继续找 skill。
                     if hasDirectSkillFiles(full) {
-                        collected.append(scanPackage(root: dir, name: name, full: full))
+                        collected.append(scanPackage(root: dir, name: name, relPath: rel, full: full))
                     } else {
-                        collectSkills(in: full, into: &collected, topLevel: false)
+                        collectSkills(in: full, relToRoot: rel, into: &collected)
                     }
                 }
             } else if name.lowercased().hasSuffix(".md") || name.lowercased().hasSuffix(".markdown") {
-                collected.append(scanStandalone(root: dir, name: name, full: full))
+                collected.append(scanStandalone(root: dir, name: name, relPath: rel, full: full))
             }
         }
     }
@@ -222,7 +235,7 @@ final class SkillStore: ObservableObject {
             && fm.fileExists(atPath: (full as NSString).appendingPathComponent("objects"))
     }
 
-    private func scanPackage(root: String, name: String, full: String) -> Skill {
+    private func scanPackage(root: String, name: String, relPath: String, full: String) -> Skill {
         let entryPath = (full as NSString).appendingPathComponent("SKILL.md")
         var desc = ""
         if FileManager.default.fileExists(atPath: entryPath) {
@@ -239,12 +252,12 @@ final class SkillStore: ObservableObject {
            let t = attrs[.modificationDate] as? Date {
             mtime = Int(t.timeIntervalSince1970)
         }
-        return Skill(name: name, path: name, kind: .package,
+        return Skill(name: name, path: relPath, kind: .package,
                      entry: FileManager.default.fileExists(atPath: entryPath) ? "SKILL.md" : nil,
                      description: desc, stats: stats, modified: mtime)
     }
 
-    private func scanStandalone(root: String, name: String, full: String) -> Skill {
+    private func scanStandalone(root: String, name: String, relPath: String, full: String) -> Skill {
         var desc = ""
         if let content = try? String(contentsOfFile: full, encoding: .utf8) {
             let fm = Frontmatter.parse(content)
@@ -252,7 +265,7 @@ final class SkillStore: ObservableObject {
                 desc = d.stringValue
             }
         }
-        return Skill(name: name, path: name, kind: .standalone, entry: name,
+        return Skill(name: name, path: relPath, kind: .standalone, entry: name,
                      description: desc,
                      stats: SkillStats(md: 1, py: 0, files: 1), modified: 0)
     }
@@ -416,23 +429,20 @@ final class SkillStore: ObservableObject {
         let kw = q.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !kw.isEmpty else { return [] }
         var results: [SearchResult] = []
-        let entries = (try? FileManager.default.contentsOfDirectory(atPath: root).sorted()) ?? []
-        for name in entries {
-            if name.hasPrefix(".") || skipDirs.contains(name) { continue }
-            let full = (root as NSString).appendingPathComponent(name)
-            var isDir: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: full, isDirectory: &isDir) else { continue }
-            let skill = isDir.boolValue
-                ? (isBareGit(full) ? nil : scanPackage(root: root, name: name, full: full))
-                : (name.lowercased().hasSuffix(".md") || name.lowercased().hasSuffix(".markdown")
-                   ? scanStandalone(root: root, name: name, full: full) : nil)
-            guard let skill else { continue }
-            let haystack = (name + "\n" + skill.description).lowercased()
+        let skills = listSkills()
+        for skill in skills {
+            let haystack = (skill.name + "\n" + skill.description).lowercased()
             if haystack.contains(kw) {
-                results.append(SearchResult(name: name, path: name, whereHit: L10n.t("名称/描述", "Name/Desc"), snippet: ""))
+                results.append(SearchResult(name: skill.name, path: skill.path, whereHit: L10n.t("名称/描述", "Name/Desc"), snippet: ""))
                 continue
             }
-            let target = isDir.boolValue ? (full as NSString).appendingPathComponent("SKILL.md") : full
+            let target: String
+            if skill.kind == .standalone {
+                target = (root as NSString).appendingPathComponent(skill.path)
+            } else {
+                target = ((root as NSString).appendingPathComponent(skill.path) as NSString)
+                    .appendingPathComponent(skill.entry ?? "SKILL.md")
+            }
             guard FileManager.default.fileExists(atPath: target),
                   let text = try? String(contentsOfFile: target, encoding: .utf8) else { continue }
             let lower = text.lowercased()
@@ -440,7 +450,7 @@ final class SkillStore: ObservableObject {
                 let start = lower.index(lower.startIndex, offsetBy: max(0, lower.distance(from: lower.startIndex, to: idx.lowerBound) - snippetRadius))
                 let end = lower.index(lower.startIndex, offsetBy: min(lower.count, lower.distance(from: lower.startIndex, to: idx.lowerBound) + kw.count + snippetRadius))
                 let snippet = String(text[start..<end]).replacingOccurrences(of: "\n", with: " ")
-                results.append(SearchResult(name: name, path: name, whereHit: "SKILL.md", snippet: snippet))
+                results.append(SearchResult(name: skill.name, path: skill.path, whereHit: "SKILL.md", snippet: snippet))
             }
             if results.count >= 50 { break }
         }
@@ -492,9 +502,15 @@ final class SkillStore: ObservableObject {
 
     /// 移入废纸篓（可恢复，非永久删除）
     func trashItem(at path: String) -> Bool {
+        var url: NSURL? = nil
+        return trashItem(at: path, resultingItemURL: &url)
+    }
+
+    /// 移入废纸篓，并通过 AutoreleasingUnsafeMutablePointer 返回废纸篓中的实际 URL，用于「撤销删除」。
+    func trashItem(at path: String, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) -> Bool {
         let fm = FileManager.default
         do {
-            try fm.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
+            try fm.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: resultingItemURL)
             return true
         } catch {
             return false

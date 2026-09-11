@@ -9,19 +9,35 @@ struct AgentSetupView: View {
     @EnvironmentObject var state: AppState
     @State private var agents: [AgentProfile]
     @State private var showCustomForm = false
-    @State private var segment: SetupSegment = .installed
+    @State private var segment: SetupSegment = .managed
     @State private var expandedID: String? = nil
+    @State private var layout: SetupLayout = .grid
     @State private var isDropTarget = false
 
-    /// 顶部分段：已安装 / 候选 / 自定义（互斥分区，避免同一 Agent 重复出现）
+    /// 顶部分段：已管理 / 候选 / 自定义（互斥分区，避免同一 Agent 重复出现）。
+    /// - 已管理：已启用纳入 SkillReader 管理的 Agent；
+    /// - 候选：尚未启用、但已安装或可被配置的 Agent，等待用户决定是否纳入管理；
+    /// - 自定义：用户手动添加的技能源目录。
     private enum SetupSegment: String, CaseIterable, Identifiable {
-        case installed, candidates, custom
+        case managed, candidates, custom
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .installed:  return L10n.t("已安装", "Installed")
+            case .managed:    return L10n.t("已管理", "Managed")
             case .candidates: return L10n.t("候选", "Candidates")
             case .custom:     return L10n.t("自定义", "Custom")
+            }
+        }
+    }
+
+    /// 列表 / 卡片 两种排布，解决宽屏下中间留白过多的问题
+    private enum SetupLayout: String, CaseIterable, Identifiable {
+        case list, grid
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .list: return L10n.t("列表", "List")
+            case .grid: return L10n.t("卡片", "Cards")
             }
         }
     }
@@ -37,13 +53,14 @@ struct AgentSetupView: View {
     }
 
     /// 当前分段下应展示的 Agent（与另外两段互斥）。
-    /// 已安装/候选以「强安装探测 isInstalled」为准，而非仅看 skills 子目录是否存在——
-    /// 残留空文件夹不再误判为已安装。
+    /// - 已管理：已启用纳入管理的 Agent；
+    /// - 候选：未启用、但可作为技能源被管理的 Agent（含已安装未启用与未安装但可配置的内置候选）；
+    /// - 自定义：用户手动添加的技能源目录。
     private var visibleAgents: [AgentProfile] {
         agents.filter { a in
             switch segment {
-            case .installed:  return !a.isCustom && a.isInstalled
-            case .candidates: return !a.isCustom && !a.isInstalled
+            case .managed:    return !a.isCustom && a.enabled
+            case .candidates: return !a.isCustom && !a.enabled
             case .custom:     return a.isCustom
             }
         }
@@ -56,23 +73,56 @@ struct AgentSetupView: View {
             header
             Divider()
 
-            // ── 分段切换：已安装 / 候选 / 自定义 ──
-            Picker("", selection: $segment) {
-                ForEach(SetupSegment.allCases) { s in
-                    Text(s.title).tag(s)
+            // ── 分段切换 + 视图切换 ──
+            HStack(spacing: 12) {
+                Picker("", selection: $segment) {
+                    ForEach(SetupSegment.allCases) { s in
+                        Text(s.title).tag(s)
+                    }
                 }
+                .pickerStyle(.segmented)
+
+                Spacer()
+
+                Picker("", selection: $layout) {
+                    Image(systemName: "list.bullet").tag(SetupLayout.list)
+                    Image(systemName: "square.grid.2x2").tag(SetupLayout.grid)
+                }
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .help(L10n.t("切换列表 / 卡片视图", "Switch list / card view"))
             }
-            .pickerStyle(.segmented)
             .padding(.horizontal, 20)
             .padding(.vertical, 10)
             Divider()
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        if visibleAgents.isEmpty {
-                            emptyHint
-                        } else {
+                    if visibleAgents.isEmpty {
+                        emptyHint
+                            .padding(.horizontal, 16)
+                            .id("listTop")
+                    } else if layout == .grid {
+                        // 卡片视图：自适应两列平铺，路径编辑常驻，横向空间不再浪费
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 300, maximum: 340), spacing: 16)],
+                            spacing: 16
+                        ) {
+                            ForEach($agents) { $agent in
+                                if visibleIDs.contains(agent.id) {
+                                    AgentCard(
+                                        agent: $agent,
+                                        onBrowse: { pickFolder(for: $agent) },
+                                        onRemove: agent.isCustom ? { removeCustom(agent) } : nil
+                                    )
+                                    .id(agent.id)
+                                }
+                            }
+                        }
+                        .padding(16)
+                        .id("listTop")
+                    } else {
+                        VStack(alignment: .leading, spacing: 10) {
                             ForEach($agents) { $agent in
                                 if visibleIDs.contains(agent.id) {
                                     AgentRow(
@@ -90,18 +140,43 @@ struct AgentSetupView: View {
                                 }
                             }
                         }
-
-                        // 拖拽添加自定义 Agent 的落点提示区，只在「自定义」分段出现
-                        if segment == .custom {
-                            dropZone
-                        }
+                        .padding(16)
+                        .id("listTop")
                     }
-                    .padding(16)
-                    .id("listTop")
+
+                    // 拖拽添加自定义 Agent 的落点提示区，只在「自定义」分段出现（含空状态）
+                    if segment == .custom {
+                        dropZone
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 16)
+                    }
+
+                    // 候选段：提供「添加 Agent」入口（复用自定义添加流程，递归发现 skill 根）
+                    if segment == .candidates {
+                        HStack {
+                            Button {
+                                showCustomForm = true
+                            } label: {
+                                Label(L10n.t("添加 Agent", "Add Agent"), systemImage: "plus")
+                                    .font(.system(size: 12))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                    }
                 }
                 .onChange(of: segment) { _, _ in
                     expandedID = nil
                     // 切换分段后回到列表顶部，避免旧滚动位置错位
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        withAnimation { proxy.scrollTo("listTop", anchor: .top) }
+                    }
+                }
+                .onChange(of: layout) { _, _ in
+                    expandedID = nil
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                         withAnimation { proxy.scrollTo("listTop", anchor: .top) }
                     }
@@ -126,11 +201,11 @@ struct AgentSetupView: View {
 
     private var hintText: String {
         switch segment {
-        case .installed:  return L10n.t("本机尚未检测到已安装的 Agent。可切到「候选」手动指定路径，或切到「自定义」添加。",
-                                        "No installed Agent detected on this Mac. Switch to \"Candidates\" to set a path manually, or to \"Custom\" to add one.")
-        case .candidates: return L10n.t("没有未配置的候选 Agent。", "No unconfigured candidate Agent.")
-        case .custom:     return L10n.t("还没有自定义 Agent，把文件夹拖到下方，或点虚线框选择文件夹自动添加。",
-                                        "No custom Agent yet. Drag a folder below, or click the dashed box to pick a folder to add automatically.")
+        case .managed:  return L10n.t("还没有纳入管理的 skill 源。可切到「候选」选择已安装的 Agent，或切到「自定义」手动添加目录。",
+                                      "No managed skill sources yet. Switch to \"Candidates\" to enable installed Agents, or to \"Custom\" to add a directory manually.")
+        case .candidates: return L10n.t("没有可配置的候选 skill 源。", "No candidate skill sources available.")
+        case .custom:     return L10n.t("还没有自定义 skill 源，把文件夹拖到下方，或点虚线框选择文件夹自动添加。",
+                                        "No custom skill source yet. Drag a folder below, or click the dashed box to pick a folder to add automatically.")
         }
     }
 
@@ -174,11 +249,11 @@ struct AgentSetupView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(L10n.t("配置要管理的 Agent", "Configure Agents to Manage"))
+            Text(L10n.t("配置 skill 源", "Configure Skill Sources"))
                 .font(.system(size: 18, weight: .bold))
             HStack(spacing: 0) {
-                Text(L10n.t("勾选你本机安装的 Agent，SkillReader 会把它们的 skills 目录集中挂载到 ",
-                            "Check the Agents installed on this Mac; SkillReader mounts their skills directories to "))
+                Text(L10n.t("选择你要管理的 skill 来源，SkillReader 会挂载到 ",
+                            "Choose the skill sources you want to manage; SkillReader mounts them to "))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                 Button {
@@ -228,13 +303,13 @@ struct AgentSetupView: View {
         .padding(.vertical, 12)
     }
 
-    /// 底部摘要：已选 N 个，本机已安装 M 个
+    /// 底部摘要：已管理 N 个，候选 M 个，共 X 个 skill
     private var summary: String {
         let enabled = agents.filter { $0.enabled }.count
-        let installed = agents.filter { $0.isInstalled }.count
+        let candidates = agents.filter { !$0.isCustom && !$0.enabled }.count
         let totalSkills = agents.filter { $0.enabled }.reduce(0) { $0 + max($1.skillCount, 0) }
-        return L10n.t("已选 \(enabled) / \(agents.count) 个 Agent · 本机已安装 \(installed) 个 · 共 \(totalSkills) 个 skill",
-                       "\(enabled) / \(agents.count) Agents selected · \(installed) installed on this Mac · \(totalSkills) skills total")
+        return L10n.t("已管理 \(enabled) 个 · 候选 \(candidates) 个 · 共 \(totalSkills) 个 skill",
+                       "\(enabled) managed · \(candidates) candidates · \(totalSkills) skills total")
     }
 
     // MARK: 自定义 Agent 表单
@@ -298,17 +373,17 @@ struct AgentSetupView: View {
             customId = ""
             return
         }
-        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        let parentName = url.deletingLastPathComponent().lastPathComponent
+        let name = derivedName(from: path)
         if customName.isEmpty || customName == derivedName(from: customPath) {
-            customName = parentName.isEmpty ? L10n.t("自定义", "Custom") : parentName
+            customName = name
         }
-        customId = derivedID(from: parentName)
+        customId = derivedID(from: name)
     }
 
     private func derivedName(from path: String) -> String {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        return url.deletingLastPathComponent().lastPathComponent
+        let name = url.lastPathComponent
+        return name.isEmpty ? L10n.t("自定义", "Custom") : name
     }
 
     private func derivedID(from name: String) -> String {
@@ -350,10 +425,13 @@ struct AgentSetupView: View {
         let name = customName.trimmingCharacters(in: .whitespaces).isEmpty
             ? derivedName(from: path)
             : customName
+
+        // 递归发现用户所选目录下的所有 skill 根目录，自动填充主路径与额外路径。
+        let (skillPath, extras) = SkillPathDiscovery.resolveAgentPaths(base: path)
         let agent = AgentProfile(
             id: id, name: name, vendor: L10n.t("自定义", "Custom"),
-            iconName: "puzzlepiece.extension", skillPath: path,
-            enabled: true, isCustom: true
+            iconName: "puzzlepiece.extension", skillPath: skillPath,
+            extraSkillPaths: extras, enabled: true, isCustom: true
         )
         if !agents.contains(where: { $0.id == agent.id }) {
             agents.append(agent)
@@ -381,13 +459,15 @@ struct AgentSetupView: View {
 
     private func addCustomFromDrop(url: URL) {
         let path = url.path
-        let parentName = url.deletingLastPathComponent().lastPathComponent
-        let name = parentName.isEmpty ? L10n.t("自定义", "Custom") : parentName
+        let name = derivedName(from: path)
         let id = derivedID(from: name)
+
+        // 拖拽目录时同样递归发现其下所有 skill 根目录。
+        let (skillPath, extras) = SkillPathDiscovery.resolveAgentPaths(base: path)
         let agent = AgentProfile(
             id: id, name: name, vendor: L10n.t("自定义", "Custom"),
-            iconName: "puzzlepiece.extension", skillPath: path,
-            enabled: true, isCustom: true
+            iconName: "puzzlepiece.extension", skillPath: skillPath,
+            extraSkillPaths: extras, enabled: true, isCustom: true
         )
         if !agents.contains(where: { $0.id == agent.id }) {
             agents.append(agent)
@@ -518,6 +598,13 @@ struct AgentRow: View {
                         .toggleStyle(.switch)
                         .labelsHidden()
                         .controlSize(.small)
+                        .onChange(of: agent.enabled) { _, newVal in
+                            // 首次纳入管理且原路径未命中任何 skill 时，自动递归检测，
+                            // 让 Trae 这类非标准布局的 Agent 开箱即用；已手动改过的路径不会被覆盖。
+                            if newVal && !agent.isCustom && agent.allSkillPaths.isEmpty {
+                                agent.redetectSkillPaths()
+                            }
+                        }
                 }
 
                 // 展开箭头
@@ -554,27 +641,62 @@ struct AgentRow: View {
                         Button(L10n.t("浏览", "Browse"), action: onBrowse)
                             .buttonStyle(.borderless)
                             .font(.system(size: 11))
+                        if !agent.isCustom && manageable {
+                            Button {
+                                agent.redetectSkillPaths()
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 11))
+                            }
+                            .buttonStyle(.borderless)
+                            .help(L10n.t("递归检测该 Agent 目录下的所有 skill 路径",
+                                         "Recursively detect all skill paths under this Agent's directory"))
+                        }
                     }
-                    if !agent.extraSkillPaths.isEmpty {
-                        VStack(alignment: .leading, spacing: 2) {
+                    // 额外 skill 路径：可增删（修改），应对多目录 / 非标准布局
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
                             Text(L10n.t("额外 skill 路径", "Extra Skill Paths"))
                                 .font(.system(size: 10))
                                 .foregroundStyle(.tertiary)
-                            ForEach(agent.extraSkillPaths, id: \.self) { p in
-                                HStack(spacing: 4) {
-                                    Image(systemName: "link")
-                                        .font(.system(size: 9))
+                            Spacer()
+                            Button { pickExtraFolder() } label: {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                            .buttonStyle(.borderless)
+                            .help(L10n.t("添加额外 skill 路径", "Add extra skill path"))
+                        }
+                        ForEach(agent.extraSkillPaths, id: \.self) { p in
+                            HStack(spacing: 4) {
+                                Image(systemName: "link")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.tertiary)
+                                Text(agent.displayLabel(for: p))
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .help(p)
+                                Spacer()
+                                Button {
+                                    agent.extraSkillPaths.removeAll { $0 == p }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 10))
                                         .foregroundStyle(.tertiary)
-                                    Text(p)
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
                                 }
+                                .buttonStyle(.plain)
+                                .help(L10n.t("移除该路径", "Remove this path"))
                             }
                         }
-                        .padding(.top, 2)
+                        if agent.extraSkillPaths.isEmpty {
+                            Text(L10n.t("暂无额外路径", "No extra paths"))
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                        }
                     }
+                    .padding(.top, 2)
                     if agent.isCustom {
                         HStack(spacing: 4) {
                             TextField(L10n.t("显示名称", "Display Name"), text: $agent.name)
@@ -601,12 +723,258 @@ struct AgentRow: View {
                         : Color(nsColor: .separatorColor).opacity(0.3), lineWidth: 0.5)
         )
     }
+
+    /// 浏览并追加一条额外 skill 路径（修改能力）：去重后写入 extraSkillPaths。
+    private func pickExtraFolder() {
+        let panel = NSOpenPanel()
+        panel.title = L10n.t("添加额外 Skill 路径", "Add Extra Skill Path")
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = L10n.t("添加", "Add")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let path = url.path
+        let real = (path as NSString).standardizingPath
+        let existing = (agent.extraSkillPaths + [agent.skillPath]).map {
+            (($0 as NSString).expandingTildeInPath as NSString).standardizingPath
+        }
+        if !existing.contains(real) {
+            agent.extraSkillPaths.append(path)
+        }
+    }
+}
+
+// MARK: - 单个 Agent 卡片（卡片 / 网格视图）
+
+/// 与 AgentRow 信息等价，但以卡片形式平铺两列，解决宽屏中间留白。
+/// 路径编辑常驻可见（不再手风琴收起），契合「卡片自己站得住」的目标。
+struct AgentCard: View {
+    @Binding var agent: AgentProfile
+    var onBrowse: () -> Void
+    var onRemove: (() -> Void)? = nil   // 仅自定义 Agent 提供删除回调
+
+    @State private var showExtras: Bool = false
+
+    private var installed: Bool { agent.isInstalled }
+    private var manageable: Bool { installed || agent.isCustom }
+
+    private var statusColor: Color {
+        installed ? Color.green : (agent.isCustom ? Color.blue.opacity(0.6) : Color.gray.opacity(0.5))
+    }
+
+    private var statusText: String {
+        if !installed {
+            return agent.isCustom ? L10n.t("自定义", "Custom") : L10n.t("未安装", "Not installed")
+        }
+        let count = agent.skillCount
+        var parts = [L10n.t("已安装", "Installed")]
+        if count > 0 {
+            parts.append(L10n.t("\(count) 个 skill", "\(count) skill(s)"))
+        } else {
+            parts.append(L10n.t("暂无 skill", "No skill yet"))
+        }
+        if agent.extraSkillPaths.count > 0 {
+            parts.append(L10n.t("多路径", "Multi-path"))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                AgentIcon(agent: agent, size: 40)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(agent.name)
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Circle().fill(statusColor).frame(width: 6, height: 6)
+                        Text(statusText)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                // 候选（未安装、非自定义）：给出明确动作「去官网」
+                if !manageable, let urlStr = agent.vendorUrl, let url = URL(string: urlStr) {
+                    Link(destination: url) {
+                        Text(L10n.t("去官网", "Visit Site"))
+                            .font(.system(size: 11))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.srAccent, lineWidth: 0.5)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // 可管理的才显示开关与（自定义）删除
+                if manageable {
+                    if agent.isCustom {
+                        Button {
+                            onRemove?()
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(L10n.t("删除此自定义 Agent（取消添加）", "Delete this custom Agent (undo add)"))
+                    }
+
+                    Text(L10n.t("纳入管理", "Include"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Toggle("", isOn: $agent.enabled)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .onChange(of: agent.enabled) { _, newVal in
+                            if newVal && !agent.isCustom && agent.allSkillPaths.isEmpty {
+                                agent.redetectSkillPaths()
+                            }
+                        }
+                }
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+
+            // 路径区常驻：卡片视图下直接编辑；额外路径默认折叠，点击展开保持卡片对齐
+            VStack(alignment: .leading, spacing: 4) {
+                if !agent.isCustom {
+                    Text(L10n.t("Skills 目录", "Skills Directory"))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+                HStack(spacing: 4) {
+                    TextField("", text: $agent.skillPath)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11))
+                    Button(L10n.t("浏览", "Browse"), action: onBrowse)
+                        .buttonStyle(.borderless)
+                        .font(.system(size: 11))
+                    if !agent.isCustom {
+                        Button {
+                            agent.redetectSkillPaths()
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 11))
+                        }
+                        .buttonStyle(.borderless)
+                        .help(L10n.t("递归检测该 Agent 目录下的所有 skill 路径",
+                                     "Recursively detect all skill paths under this Agent's directory"))
+                    }
+                }
+                // 额外 skill 路径：可增删（修改），应对多目录 / 非标准布局
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 4) {
+                        Text(L10n.t("额外 skill 路径", "Extra Skill Paths"))
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                        Spacer()
+                        Button { pickExtraFolder() } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .buttonStyle(.borderless)
+                        .help(L10n.t("添加额外 skill 路径", "Add extra skill path"))
+                    }
+                    if !agent.extraSkillPaths.isEmpty {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showExtras.toggle()
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: showExtras ? "chevron.down" : "chevron.right")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundStyle(.tertiary)
+                                Image(systemName: "link")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.tertiary)
+                                Text(L10n.t("额外 \(agent.extraSkillPaths.count) 个路径", "\(agent.extraSkillPaths.count) extra path(s)"))
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+
+                        if showExtras {
+                            VStack(alignment: .leading, spacing: 3) {
+                                ForEach(agent.extraSkillPaths, id: \.self) { p in
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "folder.badge.plus")
+                                            .font(.system(size: 8))
+                                            .foregroundStyle(.tertiary)
+                                        Text(agent.displayLabel(for: p))
+                                            .font(.system(size: 10, design: .monospaced))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                            .help(p)
+                                        Spacer()
+                                        Button {
+                                            agent.extraSkillPaths.removeAll { $0 == p }
+                                        } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .help(L10n.t("移除该路径", "Remove this path"))
+                                    }
+                                    .padding(.leading, 14)
+                                }
+                            }
+                        }
+                    } else {
+                        Text(L10n.t("暂无额外路径", "No extra paths"))
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 12)
+        }
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(manageable && agent.enabled ? Color.srAccent.opacity(0.35)
+                        : Color(nsColor: .separatorColor).opacity(0.3), lineWidth: 0.5)
+        )
+    }
+
+    /// 浏览并追加一条额外 skill 路径（修改能力）：去重后写入 extraSkillPaths。
+    private func pickExtraFolder() {
+        let panel = NSOpenPanel()
+        panel.title = L10n.t("添加额外 Skill 路径", "Add Extra Skill Path")
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = L10n.t("添加", "Add")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let path = url.path
+        let real = (path as NSString).standardizingPath
+        let existing = (agent.extraSkillPaths + [agent.skillPath]).map {
+            (($0 as NSString).expandingTildeInPath as NSString).standardizingPath
+        }
+        if !existing.contains(real) {
+            agent.extraSkillPaths.append(path)
+        }
+    }
 }
 
 // MARK: - Agent 图标（优先官方 logo，兜底 SF Symbol）
 
 struct AgentIcon: View {
     let agent: AgentProfile
+    var size: CGFloat = 28
 
     var body: some View {
         Group {
@@ -615,13 +983,13 @@ struct AgentIcon: View {
                 Image(nsImage: img)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: 28, height: 28)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: size * 0.214, style: .continuous))
             } else {
                 Image(systemName: agent.iconName)
-                    .font(.system(size: 20))
+                    .font(.system(size: size * 0.71))
                     .foregroundStyle(agent.enabled ? Color.srAccent : Color.secondary)
-                    .frame(width: 28)
+                    .frame(width: size)
             }
         }
     }

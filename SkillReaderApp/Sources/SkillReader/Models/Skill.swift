@@ -6,6 +6,7 @@ struct RootInfo: Identifiable, Equatable {
     let id: String
     let path: String
     let label: String?        // 来自 AgentRegistry 的显示名（如 "OpenClaw"）
+    let isLibrary: Bool       // 是否为 ~/.agent/library 中心库（不显示在 root 切换菜单）
     var name: String {
         if let label, !label.isEmpty { return label }
         let last = (path as NSString).lastPathComponent

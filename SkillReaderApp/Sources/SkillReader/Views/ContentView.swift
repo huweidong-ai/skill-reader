@@ -58,6 +58,32 @@ struct ContentView: View {
             ToolbarItem(placement: .principal) {
                 BreadcrumbBar()
             }
+            ToolbarItem(placement: .automatic) {
+                HStack(spacing: 2) {
+                    Button {
+                        state.openInEditor()
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 14))
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .disabled(!state.canEditCurrent)
+                    .help(state.canEditCurrent ? L10n.t("在系统编辑器中打开 (⌘E)", "Open in system editor (⌘E)") : L10n.t("当前文件不可编辑", "Current file is not editable"))
+
+                    Button {
+                        state.shareActive()
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 14))
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help(L10n.t("分享：Finder 定位 + 复制路径 (⇧⌘S)", "Share: Finder locate + copy path (⇧⌘S)"))
+                }
+            }
         }
         .onExitCommand { state.backToEntry() }
         .onAppear { enforceDefaultWidth() }
@@ -143,8 +169,8 @@ struct DistributeSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
                     if platforms.isEmpty {
-                        Text(L10n.t("尚未纳入任何 Agent。请先在「配置 Agent」中勾选要管理的平台。",
-                                    "No Agent added yet. Enable platforms in \"Configure Agent\" first."))
+                        Text(L10n.t("尚未纳入任何 skill 源。请先在「配置 skill 源」中勾选要管理的平台。",
+                                    "No skill source added yet. Enable platforms in \"Configure Skill Sources\" first."))
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                             .padding(.vertical, 8)
@@ -206,64 +232,87 @@ struct DistributeSheet: View {
 
 struct BreadcrumbBar: View {
     @EnvironmentObject var state: AppState
+    @State private var isPathHovered = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 0) {
             if let ext = state.externalFile {
+                externalPath(ext: ext)
+            } else if let skill = state.activeSkill {
+                skillPath(skill: skill)
+            } else {
+                Text("Skill Reader")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: 480, alignment: .center)
+    }
+
+    private func externalPath(ext: URL) -> some View {
+        pathButton(label: {
+            HStack(spacing: 6) {
                 Image(systemName: "doc")
-                    .font(.system(size: 13))
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                 Text(ext.lastPathComponent)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                Spacer()
-            } else if let skill = state.activeSkill {
+            }
+        })
+    }
+
+    private func skillPath(skill: Skill) -> some View {
+        pathButton(label: {
+            HStack(spacing: 6) {
                 Text(skill.name)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
+
                 if let path = state.activePath, path != skill.entry {
                     Text("/")
+                        .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
+
                     Text(path)
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                Spacer()
-                Button {
-                    state.openInEditor()
-                } label: {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 15))
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .disabled(!state.canEditCurrent)
-                .help(state.canEditCurrent ? L10n.t("在系统编辑器中打开 (⌘E)", "Open in system editor (⌘E)") : L10n.t("当前文件不可编辑", "Current file is not editable"))
 
-                Button {
-                    state.shareActive()
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 15))
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help(L10n.t("分享：Finder 定位 + 复制路径 (⇧⌘S)", "Share: Finder locate + copy path (⇧⌘S)"))
-            } else {
-                Text("Skill Reader")
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.secondary)
-                Spacer()
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .opacity(isPathHovered ? 1 : 0)
+            }
+        })
+    }
+
+    private func pathButton<Label: View>(@ViewBuilder label: () -> Label) -> some View {
+        Button {
+            state.copyActivePath()
+        } label: {
+            label()
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(isPathHovered ? 0.6 : 0))
+        )
+        .help(L10n.t("复制文件路径", "Copy file path"))
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isPathHovered = hovering
             }
         }
-        .font(.system(size: 12))
-        .padding(.horizontal, 8)
     }
+
 }
 
 // MARK: - 侧栏
@@ -281,13 +330,18 @@ struct SidebarView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
-                    TextField(L10n.t("搜索技能名 / 描述，回车全局搜索…", "Search skill name / description, ⏎ for global search…"), text: $state.searchText, onCommit: {
-                        state.runSearch()
-                    })
+                    TextField(L10n.t("搜索技能名 / 描述，回车全局搜索…", "Search skill name / description, ⏎ for global search…"), text: $state.searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
                     .autocorrectionDisabled()
                     .focused($searchFocus)
+                    // TextField 的 onCommit 在 macOS 上会随编辑结束触发；点击正文令
+                    // 搜索框失焦时也可能执行全局搜索，把筛选后的 skill 树替换掉。
+                    // 直接监听回车键，确保只有用户明确按回车才切到全局搜索结果。
+                    .onKeyPress(.return) {
+                        state.runSearch()
+                        return .handled
+                    }
                     .onChange(of: searchFocus) { _, isFocused in
                         // 失焦且文本为空 → 自动折叠（点击空白处收起搜索框）
                         if !isFocused, state.searchText.isEmpty, state.searchResults == nil {
@@ -315,7 +369,7 @@ struct SidebarView: View {
                 // 折叠态：左边根目录名（点击弹出下拉切换），右边搜索图标
                 HStack(spacing: 6) {
                     Menu {
-                        ForEach(state.store.roots) { root in
+                        ForEach(state.store.roots.filter { !$0.isLibrary }) { root in
                             Button {
                                 state.switchRoot(id: root.id)
                             } label: {
@@ -482,8 +536,11 @@ struct SkillRow: View {
                     Button(L10n.t("复制文件名", "Copy File Name")) { state.copyItemName(skill: skill, rel: nil) }
                     Button(L10n.t("复制文件路径", "Copy File Path")) { state.copyItemPath(skill: skill, rel: nil) }
                     Divider()
-                    Button(L10n.t("复制副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: nil) }
+                    Button(L10n.t("创建副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: nil) }
                     Button(L10n.t("移入废纸篓", "Move to Trash")) { state.trashItem(skill: skill, rel: nil) }
+                    if state.canUndoDelete {
+                        Button(L10n.t("撤销删除", "Undo Delete")) { state.undoLastTrash() }
+                    }
                     Divider()
                     Button(L10n.t("打开访达", "Show in Finder")) { state.revealItem(skill: skill, rel: nil) }
                     Divider()
@@ -493,6 +550,9 @@ struct SkillRow: View {
                 Button {
                     state.clearContextTarget()
                     state.toggleSkill(skill)
+                    // 点选技能包本身时，把选中态指向技能包目录（文件夹），
+                    // 这样 ⌘C 复制的是整个技能包路径，而不是自动打开的 entry 文件。
+                    state.selectNode(skill: skill, rel: nil, isDir: true)
                 } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
@@ -546,8 +606,11 @@ struct SkillRow: View {
                     Button(L10n.t("复制文件名", "Copy File Name")) { state.copyItemName(skill: skill, rel: nil) }
                     Button(L10n.t("复制文件路径", "Copy File Path")) { state.copyItemPath(skill: skill, rel: nil) }
                     Divider()
-                    Button(L10n.t("复制副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: nil) }
+                    Button(L10n.t("创建副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: nil) }
                     Button(L10n.t("移入废纸篓", "Move to Trash")) { state.trashItem(skill: skill, rel: nil) }
+                    if state.canUndoDelete {
+                        Button(L10n.t("撤销删除", "Undo Delete")) { state.undoLastTrash() }
+                    }
                     Divider()
                     Button(L10n.t("打开访达", "Show in Finder")) { state.revealItem(skill: skill, rel: nil) }
                     Divider()
@@ -573,6 +636,12 @@ struct SkillRow: View {
         .onHover { hovering in
             isHovered = hovering
             if hovering { state.contextTarget = contextKey }
+        }
+        .onChange(of: state.treeCache[skill.path].map { ObjectIdentifier($0) }) { _, _ in
+            // treeCache 被清除（如创建副本、移入废纸篓、撤销删除）后，
+            // 如果 tree 仍持有旧实例，UI 不会自动重载。这里监听缓存变化，
+            // 强制重新从磁盘构建文件树，确保新文件出现、被删文件消失。
+            loadTree()
         }
     }
 
@@ -649,6 +718,7 @@ struct DirNodeView: View {
         VStack(alignment: .leading, spacing: 3) {
             Button {
                 state.clearContextTarget()
+                state.selectNode(skill: skill, rel: node.path, isDir: true)
                 expanded.toggle()
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -661,7 +731,7 @@ struct DirNodeView: View {
                         .foregroundStyle(.secondary)
                     Text(node.name)
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                 }
@@ -683,9 +753,13 @@ struct DirNodeView: View {
             .contextMenu {
             Button(L10n.t("复制文件名", "Copy File Name")) { state.copyItemName(skill: skill, rel: node.path) }
             Button(L10n.t("复制文件路径", "Copy File Path")) { state.copyItemPath(skill: skill, rel: node.path) }
+            Button(L10n.t("复制文件", "Copy File")) { state.selectNode(skill: skill, rel: node.path, isDir: true); state.copyActiveFile() }
             Divider()
-            Button(L10n.t("复制副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: node.path) }
+            Button(L10n.t("创建副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: node.path) }
             Button(L10n.t("移入废纸篓", "Move to Trash")) { state.trashItem(skill: skill, rel: node.path) }
+            if state.canUndoDelete {
+                Button(L10n.t("撤销删除", "Undo Delete")) { state.undoLastTrash() }
+            }
             Divider()
             Button(L10n.t("打开访达", "Show in Finder")) { state.revealItem(skill: skill, rel: node.path) }
             }
@@ -722,6 +796,7 @@ struct FileRowView: View {
     var body: some View {
         Button {
             state.clearContextTarget()
+            state.selectNode(skill: skill, rel: node.path, isDir: false)
             state.openFile(skill: skill, path: node.path)
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -764,9 +839,13 @@ struct FileRowView: View {
         .contextMenu {
             Button(L10n.t("复制文件名", "Copy File Name")) { state.copyItemName(skill: skill, rel: node.path) }
             Button(L10n.t("复制文件路径", "Copy File Path")) { state.copyItemPath(skill: skill, rel: node.path) }
+            Button(L10n.t("复制文件", "Copy File")) { state.selectNode(skill: skill, rel: node.path, isDir: false); state.copyActiveFile() }
             Divider()
-            Button(L10n.t("复制副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: node.path) }
+            Button(L10n.t("创建副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: node.path) }
             Button(L10n.t("移入废纸篓", "Move to Trash")) { state.trashItem(skill: skill, rel: node.path) }
+            if state.canUndoDelete {
+                Button(L10n.t("撤销删除", "Undo Delete")) { state.undoLastTrash() }
+            }
             Divider()
             Button(L10n.t("打开访达", "Show in Finder")) { state.revealItem(skill: skill, rel: node.path) }
         }

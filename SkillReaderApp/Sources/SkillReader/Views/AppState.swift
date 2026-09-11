@@ -11,6 +11,16 @@ struct TocItem: Identifiable, Equatable {
     let level: Int
 }
 
+// MARK: - 撤销删除记录
+
+/// 记录最后一次移入废纸篓的文件，用于「撤销删除」一次性回滚。
+struct LastTrashRecord: Equatable {
+    let originalPath: String
+    let trashedURL: URL
+    let skillPath: String
+    let name: String
+}
+
 // MARK: - 主题模式
 
 enum ThemeMode: String, CaseIterable, Identifiable {
@@ -65,6 +75,10 @@ final class AppState: ObservableObject {
     @Published var activeKind: FileKind = .md
     @Published var currentFile: FileContent?
 
+    // ---- 文件树选中态（供 ⌘C 复制文件实体）----
+    @Published var selectedNodePath: String? = nil   // 选中的文件/文件夹绝对路径
+    @Published var selectedNodeIsDir: Bool = false
+
     // ---- 侧栏展开 ----
     @Published var expandedSkills: Set<String> = []
     @Published var treeCache: [String: FileNode] = [:]
@@ -72,6 +86,14 @@ final class AppState: ObservableObject {
     // ---- 右键目标高亮（菜单打开期间保持选中感）----
     @Published var contextTarget: String? = nil   // "s:<skillPath>" 或 "f:<skillPath>|<rel>"
     func clearContextTarget() { contextTarget = nil }
+
+    // ---- 撤销删除：记录最后一次废纸篓操作 ----
+    @Published var lastTrashedItem: LastTrashRecord? = nil
+    /// 有未撤销的删除且文件仍在废纸篓中
+    var canUndoDelete: Bool {
+        guard let record = lastTrashedItem else { return false }
+        return FileManager.default.fileExists(atPath: record.trashedURL.path)
+    }
 
     // ---- TOC / 源码模式 ----
     @Published var tocItems: [TocItem] = []
@@ -297,7 +319,9 @@ final class AppState: ObservableObject {
         return "imported"
     }
 
-    /// 把任意 root 下的 skill 复制进中心库（以 canonical 命名），成功后切到中心库并打开分发 sheet。
+    /// 把任意 root 下的 skill 复制进中心库（以 canonical 命名），
+    /// 但保持当前 Agent root 不变，直接打开分发 sheet。
+    /// 中心库作为后台分发源，不再跳到前台占用 root 切换菜单。
     func copySkillToLibrary(_ skill: Skill) {
         // 已在中心库：无需复制（skill.name 已是 canonical），直接打开分发
         if isSkillInLibrary {
@@ -317,11 +341,8 @@ final class AppState: ObservableObject {
             flashToast(L10n.t("复制到中心库失败", "Failed to copy to library"), isError: true)
             return
         }
-        // 切到中心库查看，并打开分发 sheet（用 canonical 构造列表项）
+        // 保持当前 root 不变，仅刷新 roots 数据；分发 sheet 用 canonical 构造列表项
         store.loadRoots()
-        if let libRoot = store.roots.first(where: { $0.path == SkillDistributor.shared.libraryDir }) {
-            switchRoot(id: libRoot.id)
-        }
         reloadSkills()
         let libSkill = Skill(name: canonical, path: canonical, kind: .package,
                              entry: "SKILL.md", description: skill.description,
@@ -358,6 +379,8 @@ final class AppState: ObservableObject {
     // MARK: - 技能列表
 
     func reloadSkills() {
+        // 重探所有已管理 Agent 根目录（含新装的 Agent），保留当前选中的根
+        store.loadRoots()
         let list = store.listSkills()
         skills = list
         searchResults = nil
@@ -426,6 +449,11 @@ final class AppState: ObservableObject {
         activePath = path
         activeKind = file.kind
         currentFile = file
+        // 记录选中态，供 ⌘C 复制文件实体
+        if let abs = store.rawPath(skillPath: skill.path, relPath: path) {
+            selectedNodePath = abs
+            selectedNodeIsDir = false
+        }
         sourceMode = false
         tocItems = []
         activeHeadingID = nil
@@ -453,6 +481,165 @@ final class AppState: ObservableObject {
         return store.rawPath(skillPath: skill.path, relPath: rel)
     }
 
+    /// 记录文件树选中态（点文件/文件夹/技能包时调用，不打开也记录）
+    /// `rel` 为 nil 表示选中技能包根目录本身。
+    func selectNode(skill: Skill, rel: String?, isDir: Bool) {
+        if let abs = absolutePath(skill: skill, rel: rel) {
+            selectedNodePath = abs
+            selectedNodeIsDir = isDir
+        }
+    }
+
+    /// 当前打开文件的绝对路径（⌘C 兜底）
+    private func absolutePathForActive() -> String? {
+        guard let skill = activeSkill, let path = activePath else { return nil }
+        return store.rawPath(skillPath: skill.path, relPath: path)
+    }
+
+    /// 判断当前焦点是否在应走系统默认 ⌘C/⌘V 的视图内（文本输入框 / 网页正文）。
+    /// 网页正文选中文字时，firstResponder 是 WKWebView 内部视图，沿 responder chain 向上能找到 WKWebView。
+    func isSystemCopyPasteActive() -> Bool {
+        var responder: NSResponder? = NSApp.keyWindow?.firstResponder
+        while let r = responder {
+            if r is WKWebView || r is NSText {
+                return true
+            }
+            responder = r.nextResponder
+        }
+        return false
+    }
+
+    /// 当前焦点是否「确有文字选区」需要走系统复制/剪切：文本框有选中范围，或网页正文（选区由调用方异步判断）。
+    /// 仅「文本框获得焦点但无选区」时返回 false，让 ⌘C/⌘X 退化为复制选中的文件——
+    /// 避免粘贴后焦点仍停在搜索框（firstResponder 仍是搜索框的 NSTextView），导致 ⌘C 复制了搜索文字而非文件。
+    func focusHasTextSelection() -> Bool {
+        var responder: NSResponder? = NSApp.keyWindow?.firstResponder
+        while let r = responder {
+            if r is WKWebView {
+                return true // 网页选区由调用方用 JS 异步判断
+            }
+            if let tv = r as? NSTextView {
+                return tv.selectedRanges.contains { $0.rangeValue.length > 0 }
+            }
+            responder = r.nextResponder
+        }
+        return false
+    }
+
+    /// 把编辑类动作（copy/paste/selectAll）转发给当前焦点视图（网页正文或文本输入框）。
+    /// 焦点在网页正文时直发 webView；焦点在搜索框等文本框时交给系统沿 responder chain 分派，
+    /// 避免右侧 webView 存在时把粘贴动作错发给网页而漏掉文本框。
+    func forwardEdit(_ selector: Selector) {
+        guard isSystemCopyPasteActive() else { return }
+        if focusIsWebView() {
+            NSApp.sendAction(selector, to: webView, from: nil)
+        } else {
+            NSApp.sendAction(selector, to: nil, from: nil)
+        }
+    }
+
+    /// ⌘X 剪切：焦点在文本输入框 / 网页正文且有文字选区时走系统默认 cut:（剪切选中文字）；
+    /// 焦点在网页但无选区（仅点开文件）、或焦点在文件树时，本应用无移动语义，退化为复制文件。
+    func cutActive() {
+        if focusHasTextSelection() {
+            if let wv = webView, focusIsWebView() {
+                wv.evaluateJavaScript("window.getSelection().toString()") { result, _ in
+                    let text = result as? String ?? ""
+                    if text.isEmpty {
+                        self.copyActiveFile()
+                    } else {
+                        self.forwardEdit(#selector(NSText.cut(_:)))
+                    }
+                }
+                return
+            }
+            forwardEdit(#selector(NSText.cut(_:)))
+            return
+        }
+        // 文件树：无移动/重排能力，剪切退化为复制文件，避免快捷键无响应
+        copyActiveFile()
+    }
+
+    /// 当前焦点是否落在网页正文（WKWebView）内，区别于搜索框等 NSText 输入框。
+    func focusIsWebView() -> Bool {
+        var responder: NSResponder? = NSApp.keyWindow?.firstResponder
+        while let r = responder {
+            if r is WKWebView { return true }
+            responder = r.nextResponder
+        }
+        return false
+    }
+
+    /// ⌘C 复制文件实体：把选中文件/文件夹作为文件承诺写入剪贴板，
+    /// 可粘贴到 Finder、聊天窗口、邮件等支持文件粘贴的目标。
+    /// 若焦点在文本输入框或网页正文且确有文字选区，则交给系统默认复制文字。
+    func copyActiveFile() {
+        if focusHasTextSelection() {
+            if let wv = webView, focusIsWebView() {
+                // 网页正文：仅有文字选区时才复制网页文字；
+                // 若只是点开文件（无选区，焦点落在 webView），退化为复制选中的文件。
+                wv.evaluateJavaScript("window.getSelection().toString()") { result, _ in
+                    let text = result as? String ?? ""
+                    if text.isEmpty {
+                        self.copySelectedFile()
+                    } else {
+                        self.forwardEdit(#selector(NSText.copy(_:)))
+                        self.flashToast(L10n.t("已复制", "Copied"))
+                    }
+                }
+            } else {
+                // 搜索框等 NSText 输入框：复制交还系统，无需提示
+                forwardEdit(#selector(NSText.copy(_:)))
+            }
+            return
+        }
+
+        copySelectedFile()
+    }
+
+    /// 复制当前选中的文件 / 文件夹（来自文件树选中态或当前打开的文件）。
+    private func copySelectedFile() {
+        var url: URL? = nil
+        if let ext = externalFile {
+            url = ext
+        } else if let abs = selectedNodePath, FileManager.default.fileExists(atPath: abs) {
+            url = URL(fileURLWithPath: abs)
+        } else if let abs = absolutePathForActive() {
+            url = URL(fileURLWithPath: abs)
+        }
+
+        guard let url else {
+            flashToast(L10n.t("复制失败：未选中文件", "Copy failed: no file selected"), isError: true)
+            return
+        }
+
+        // 目录判断：优先用选中时记录的 isDir（技能包/文件夹在文件树中被点选时），
+        // 再回退到真实文件系统属性（兜底外部文件等场景）。
+        let isDir: Bool
+        if let selectedAbs = selectedNodePath, url.path == selectedAbs {
+            isDir = selectedNodeIsDir
+        } else {
+            isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+        }
+
+        let pb = NSPasteboard.general
+        pb.clearContents()
+
+        if isDir {
+            // 文件夹实体多数聊天/对话框不接受粘贴，且按需求只复制文件夹路径（文本），
+            // 不写入 fileURL，避免部分目标读到文件夹实体而粘贴失败。
+            pb.setString(url.path, forType: .string)
+            flashToast(L10n.t("已复制文件夹路径：\(url.lastPathComponent)",
+                              "Copied folder path: \(url.lastPathComponent)"))
+        } else {
+            // 文件：写文件实体（可粘贴到 Finder / 聊天窗口等），并附带路径文本兜底。
+            pb.writeObjects([url] as [NSPasteboardWriting])
+            pb.setString(url.path, forType: .string)
+            flashToast(L10n.t("已复制文件：\(url.lastPathComponent)",
+                              "Copied file: \(url.lastPathComponent)"))
+        }
+    }
+
     func duplicateItem(skill: Skill, rel: String?) {
         guard let abs = absolutePath(skill: skill, rel: rel),
               let newPath = store.duplicateItem(at: abs) else {
@@ -475,12 +662,43 @@ final class AppState: ObservableObject {
         alert.addButton(withTitle: L10n.t("移入废纸篓", "Move to Trash"))
         alert.addButton(withTitle: L10n.t("取消", "Cancel"))
         if alert.runModal() == .alertFirstButtonReturn {
-            guard store.trashItem(at: abs) else {
+            var trashedURL: NSURL? = nil
+            guard store.trashItem(at: abs, resultingItemURL: &trashedURL) else {
                 flashToast(L10n.t("删除失败", "Delete failed"), isError: true)
                 return
             }
+            if let url = trashedURL as URL? {
+                lastTrashedItem = LastTrashRecord(originalPath: abs, trashedURL: url, skillPath: skill.path, name: name)
+            } else {
+                lastTrashedItem = nil
+            }
             flashToast(L10n.t("已移入废纸篓：\(name)", "Moved to Trash: \(name)"))
             refreshAfterFileOp(skill: skill)
+        }
+    }
+
+    /// 撤销最后一次删除：从废纸篓把文件移回原路径，并刷新对应 skill 树。
+    func undoLastTrash() {
+        guard let record = lastTrashedItem else { return }
+        guard FileManager.default.fileExists(atPath: record.trashedURL.path) else {
+            lastTrashedItem = nil
+            flashToast(L10n.t("原文件已不在废纸篓，无法撤销", "Original file is no longer in Trash, cannot undo"), isError: true)
+            return
+        }
+        do {
+            // 若原目录已被删除，先重建
+            let parent = (record.originalPath as NSString).deletingLastPathComponent
+            if !parent.isEmpty && !FileManager.default.fileExists(atPath: parent) {
+                try FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
+            }
+            try FileManager.default.moveItem(at: record.trashedURL, to: URL(fileURLWithPath: record.originalPath))
+            lastTrashedItem = nil
+            flashToast(L10n.t("已撤销删除：\(record.name)", "Undeleted: \(record.name)"))
+            if let skill = skills.first(where: { $0.path == record.skillPath }) {
+                refreshAfterFileOp(skill: skill)
+            }
+        } catch {
+            flashToast(L10n.t("撤销删除失败", "Undo delete failed"), isError: true)
         }
     }
 
@@ -539,6 +757,26 @@ final class AppState: ObservableObject {
         flashToast(L10n.t("已在系统编辑器打开", "Opened in system editor"))
     }
 
+    /// 轻量复制：仅把当前文件绝对路径写入剪贴板，不打开 Finder
+    func copyActivePath() {
+        if let ext = externalFile {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(ext.path, forType: .string)
+            flashToast(L10n.t("已复制路径", "Path copied"))
+            return
+        }
+        guard let skill = activeSkill, let path = activePath,
+              let abs = store.rawPath(skillPath: skill.path, relPath: path) else {
+            flashToast(L10n.t("复制失败：无法定位路径", "Copy failed: cannot locate path"), isError: true)
+            return
+        }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(abs, forType: .string)
+        flashToast(L10n.t("已复制路径", "Path copied"))
+    }
+
     /// 分享：Finder 定位 + 复制路径（无中间文件）
     func shareActive() {
         if let ext = externalFile {
@@ -576,7 +814,9 @@ final class AppState: ObservableObject {
                 openFile(skill: skill, path: skill.entry ?? activePath)
             }
         }
-        reloadSkills()
+        // 不再全量 reloadSkills()：全量刷新会清空 expandedSkills 与 treeCache，
+        // 导致刚展开的技能折叠、刚创建的副本不刷新。只清除当前 skill 的 treeCache，
+        // 由 SkillRow 的 .onChange 触发局部重载。
     }
 
     func backToEntry() {
@@ -840,7 +1080,11 @@ final class AppState: ObservableObject {
         activeSkill = nil
         activePath = nil
         currentFile = nil
+        selectedNodePath = nil
+        selectedNodeIsDir = false
         tocItems = []
+        // 立即渲染 welcome，避免旧智能体的内容在 reloadSkills 完成前残留
+        renderCurrent()
         reloadSkills()
     }
 
