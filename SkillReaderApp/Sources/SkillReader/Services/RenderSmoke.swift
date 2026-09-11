@@ -171,6 +171,9 @@ enum RenderSmoke {
             failures.append("页面仍显示加载中或为空")
         }
 
+        // 回归：确认传给 JS 的查询串字面量生成正确（这是「搜不出来」的历史根因）
+        checkJSStringLiteral(&failures)
+
         // 端到端验证：window.findInPage → notify({action:"findResult"}) → 消息处理器
         // （与 DocWebView.Coordinator 完全相同的契约）。这里用 actor 安全的 SmokeHandler
         // 捕获回传，确认 findResult 能从 JS 正确回到 Swift 侧并携带 count / index。
@@ -203,7 +206,7 @@ enum RenderSmoke {
                 print("E2E find: SKIP（页面无英文词，交给专项验证 C 兜底）")
             } else {
                 findCapture.reset()
-                webView.evaluateJavaScript("window.findInPage(\(jsonStringForTest(term)), {})")
+                webView.evaluateJavaScript("window.findInPage(\(jsStringLiteral(term)), {})")
                 let fDeadline = Date().addingTimeInterval(5)
                 while findCapture.count <= 0 && Date() < fDeadline {
                     RunLoop.main.run(until: Date().addingTimeInterval(0.05))
@@ -670,14 +673,22 @@ final class FindResultCapture: @unchecked Sendable {
     var index: Int { lock.lock(); defer { lock.unlock() }; return _index }
 }
 
-// MARK: - 测试辅助
+// MARK: - 回归断言：JS 字符串字面量生成
 
-func jsonStringForTest(_ obj: Any) -> String {
-    // NSJSONSerialization 不允许顶层为字符串，用数组包一层再去掉 [ ]，得到合法的 JSON 字符串字面量。
-    guard let data = try? JSONSerialization.data(withJSONObject: [obj], options: []),
-          let str = String(data: data, encoding: .utf8), str.count >= 2 else { return "\"\"" }
-    let inner = str.dropFirst().dropLast() // 去掉 [ ]
-    return String(inner)
-        .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
-        .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
+/// 回归：传给 JS 的查询串必须是带引号的合法字符串字面量。
+/// 历史 bug：把 String 直接交给 JSONSerialization 顶层序列化会抛 NSException，
+/// 退化为 "{}" 后 JS 侧拿不到查询词，表现为「搜不出来」。
+func checkJSStringLiteral(_ failures: inout [String]) {
+    let lit = jsStringLiteral("skills")
+    print("jsStringLiteral 回归: \(lit)")
+    guard lit.hasPrefix("\""), lit.hasSuffix("\""), lit.contains("skills") else {
+        failures.append("jsStringLiteral 未生成合法 JS 字符串字面量（实际 \(lit)）")
+        return
+    }
+    // 含特殊字符也不能破坏 JS 语法
+    let tricky = jsStringLiteral("a\"b\\c\n")
+    print("jsStringLiteral 特殊字符: \(tricky)")
+    if tricky == "{}" || tricky.isEmpty {
+        failures.append("jsStringLiteral 对特殊字符退化为非法值（实际 \(tricky)）")
+    }
 }

@@ -47,6 +47,25 @@ enum ThemeMode: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - JS 字符串字面量
+
+/// 把 Swift 字符串转成可安全嵌入 JS 源码的字符串字面量（含引号、已转义）。
+///
+/// 注意：不能直接用 `JSONSerialization.data(withJSONObject:)` 传字符串——
+/// 它要求顶层是数组/字典，传 String 会抛 NSInvalidArgumentException，
+/// 且是 NSException，`try?` / do-catch 都拦不住（会直接崩溃）。
+/// 这里用「数组包一层再去掉 [ ]」的方式拿到合法的 JSON 字符串字面量。
+func jsStringLiteral(_ text: String) -> String {
+    guard let data = try? JSONSerialization.data(withJSONObject: [text], options: []),
+          let str = String(data: data, encoding: .utf8),
+          str.count >= 2 else {
+        return "\"\""   // 序列化失败时退化为空字符串字面量，保证 JS 语法合法
+    }
+    return String(str.dropFirst().dropLast())
+        .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+        .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
+}
+
 // MARK: - 全局状态
 
 @MainActor
@@ -998,7 +1017,7 @@ final class AppState: ObservableObject {
 
     func scrollToHeading(id: String) {
         guard webReady, let webView else { return }
-        callJS("window.scrollToHeading(\(jsonString(id)))", on: webView)
+        callJS("window.scrollToHeading(\(jsStringLiteral(id)))", on: webView)
     }
 
     private func callJS(_ js: String, on webView: WKWebView) {
@@ -1011,6 +1030,9 @@ final class AppState: ObservableObject {
     }
 
     private func jsonString(_ obj: Any) -> String {
+        // 兜底：NSJSONSerialization 不允许顶层为字符串（会抛 NSException，try? 也拦不住），
+        // 这里统一转交给 jsStringLiteral 处理，避免其它调用点误传 String 导致崩溃。
+        if let s = obj as? String { return jsStringLiteral(s) }
         guard let data = try? JSONSerialization.data(withJSONObject: obj),
               let str = String(data: data, encoding: .utf8) else { return "{}" }
         // 转义 U+2028/U+2029（JS 字符串字面量不合法）
@@ -1095,7 +1117,9 @@ final class AppState: ObservableObject {
     func findInPage(_ text: String) {
         findText = text
         guard webReady, let webView else { return }
-        callJS("window.findInPage(\(jsonString(text)), {})", on: webView)
+        // 必须用 jsStringLiteral 生成带引号的 JS 字符串字面量；
+        // jsonString 传 String 会抛 NSException（顶层非数组/字典）。
+        callJS("window.findInPage(\(jsStringLiteral(text)), {})", on: webView)
     }
 
     func findNext() {
