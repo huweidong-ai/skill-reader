@@ -360,6 +360,78 @@ enum RenderSmoke {
         checkDoubleClickSelectsBlock(index: 3, eventName: "mouseup",
                                      label: "双击选中整段(两次 mouseup)", twice: true)
 
+        // 专项验证 C：正文内查找（find-in-page）—— 取页面首个英文词，调 window.findInPage
+        // 高亮，断言命中数 > 0；再清空字符串应移除所有高亮。
+        do {
+            let jsFind = """
+            (function() {
+              try {
+                var content = document.getElementById('content');
+                if (!content) return JSON.stringify({setup: 'no-content'});
+                var text = content.innerText || '';
+                var m = text.match(/[A-Za-z]{3,}/);
+                var term = m ? m[0] : null;
+                if (!term) return JSON.stringify({setup: 'no-word', textLen: text.length});
+                window.findInPage(term, {});
+                var hits = content.querySelectorAll('mark.sr-find').length;
+                return JSON.stringify({setup: 'ok', term: term, hits: hits});
+              } catch (e) { return JSON.stringify({setup: 'error', err: String(e)}); }
+            })()
+            """
+            var findDone = false
+            var findSetup = ""
+            var findHits = 0
+            var findTerm = ""
+            webView.evaluateJavaScript(jsFind) { obj, _ in
+                if let s = obj as? String,
+                   let d = s.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                    findSetup = parsed["setup"] as? String ?? ""
+                    findHits = parsed["hits"] as? Int ?? 0
+                    findTerm = parsed["term"] as? String ?? ""
+                }
+                findDone = true
+            }
+            let fDeadline = Date().addingTimeInterval(5)
+            while !findDone && Date() < fDeadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
+            print("正文内查找(term=\(findTerm)): setup=\(findSetup), hits=\(findHits)")
+            if findSetup == "ok" {
+                if findHits <= 0 {
+                    failures.append("find-in-page 未高亮任何命中（期望 > 0）")
+                } else {
+                    let jsClear = """
+                    window.findInPage('', {});
+                    (function() {
+                      var c = document.getElementById('content');
+                      return JSON.stringify({marks: c ? c.querySelectorAll('mark.sr-find').length : 0});
+                    })()
+                    """
+                    var clearDone = false
+                    var clearMarks = -1
+                    webView.evaluateJavaScript(jsClear) { obj, _ in
+                        if let s = obj as? String,
+                           let d = s.data(using: .utf8),
+                           let parsed = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                            clearMarks = parsed["marks"] as? Int ?? -1
+                        }
+                        clearDone = true
+                    }
+                    let cDeadline = Date().addingTimeInterval(5)
+                    while !clearDone && Date() < cDeadline {
+                        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+                    }
+                    print("清空查找后高亮数: \(clearMarks)")
+                    if clearMarks != 0 {
+                        failures.append("find-in-page 清空后仍有残留高亮（期望 0）")
+                    }
+                }
+            } else {
+                print("正文内查找: SKIP（\(findSetup)）")
+            }
+        }
+
         // 专项验证：找一个含特殊字符（>&2、tab 缩进）的 bash 脚本，
         // 看 hljs 输出是否含字面 `\n`（两字符），确认 sanitizeHljs 生效
         let homeSkills = (FileManager.default.homeDirectoryForCurrentUser.path as NSString).appendingPathComponent(".workbuddy/skills")

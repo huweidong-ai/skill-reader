@@ -176,6 +176,24 @@ html[data-theme="dark"] .md-body ::selection {
   background: rgba(10, 132, 255, 0.38);
   color: inherit;
 }
+
+/* 正文内查找高亮：普通命中用暖黄，当前命中用橙（深浅模式均清晰可读） */
+mark.sr-find {
+  background: rgba(255, 214, 10, 0.42);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+mark.sr-find-current {
+  background: rgba(255, 149, 0, 0.92);
+  color: #fff;
+}
+html[data-theme="dark"] mark.sr-find {
+  background: rgba(255, 214, 10, 0.32);
+}
+html[data-theme="dark"] mark.sr-find-current {
+  background: rgba(255, 149, 0, 0.95);
+}
 .md-body ul, .md-body ol {
   margin: .75em 0; padding-left: 0; line-height: 1.85;
   display: block;
@@ -2012,6 +2030,7 @@ window.applyTheme = function(mode) {
 
 // Swift 调用入口
 window.renderSkill = function(p) {
+  __findResetOnRender();
   currentBaseDir = p.baseDir || "";
   document.body.className = ""; // 各 render 函数按需加特定视图 class
   if (p.kind === "welcome") { if (p.lang) __lang = (p.lang === "en") ? "en" : "zh"; renderWelcome(); return; }
@@ -2030,6 +2049,153 @@ window.renderSkill = function(p) {
 window.scrollToHeading = function(id) {
   const el = document.getElementById(id);
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+};
+
+// ---- 正文内查找（find-in-page）----
+// 复用 #content .md-content 的 innerHTML 快照：首次进入查找时保存原始 HTML，
+// 之后每次重新查找都先从快照还原（同时恢复代码高亮等内联结构），再重新包裹 <mark>。
+// 切换文件（renderSkill 重建 #content）时由 __findResetOnRender 清空快照。
+let __findSavedHTML = null;
+let __findHits = [];
+let __findIndex = -1;
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function __findResetOnRender() {
+  __findSavedHTML = null;
+  __findHits = [];
+  __findIndex = -1;
+}
+
+function __findClear() {
+  const c = document.querySelector("#content .md-content");
+  if (c && __findSavedHTML != null) {
+    c.innerHTML = __findSavedHTML;
+    __findSavedHTML = null;
+  }
+  __findHits = [];
+  __findIndex = -1;
+}
+
+// 在当前 .md-content 中重新查找并高亮 query；返回命中数量。
+function __findBuild(query, caseSensitive) {
+  const c = document.querySelector("#content .md-content");
+  if (!c) return 0;
+  if (__findSavedHTML == null) __findSavedHTML = c.innerHTML;
+
+  const walker = document.createTreeWalker(c, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      const pe = node.parentElement;
+      // 跳过已在高亮里的文本
+      if (pe && pe.closest("mark.sr-find")) return NodeFilter.FILTER_REJECT;
+      // 跳过代码块复制按钮文字
+      if (pe && pe.closest(".md-code-copy")) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+
+  const textNodes = [];
+  let n;
+  while ((n = walker.nextNode())) textNodes.push(n);
+
+  let re;
+  try {
+    re = new RegExp(escapeRegExp(query), caseSensitive ? "g" : "gi");
+  } catch (e) {
+    return 0;
+  }
+
+  // 收集替换计划：每个文本节点按匹配切片为普通片段 / 命中片段
+  const ops = [];
+  for (const node of textNodes) {
+    const text = node.nodeValue;
+    re.lastIndex = 0;
+    if (!re.test(text)) continue;
+    re.lastIndex = 0;
+    const parts = [];
+    let last = 0;
+    let m;
+    let total = 0;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) parts.push({ hit: false, t: text.slice(last, m.index) });
+      parts.push({ hit: true, t: m[0] });
+      total += 1;
+      last = m.index + m[0].length;
+      if (m[0].length === 0) re.lastIndex++; // 防零宽死循环
+    }
+    if (last < text.length) parts.push({ hit: false, t: text.slice(last) });
+    if (parts.length) ops.push({ node, parts, total });
+  }
+
+  const count = ops.reduce((sum, o) => sum + o.total, 0);
+  if (count === 0) return 0;
+
+  // 从后往前替换，避免前面节点的改动影响后面 nodeValue 的位置
+  for (let i = ops.length - 1; i >= 0; i--) {
+    const { node, parts } = ops[i];
+    const frag = document.createDocumentFragment();
+    for (const part of parts) {
+      if (part.hit) {
+        const mark = document.createElement("mark");
+        mark.className = "sr-find";
+        mark.textContent = part.t;
+        frag.appendChild(mark);
+      } else {
+        frag.appendChild(document.createTextNode(part.t));
+      }
+    }
+    node.parentNode.replaceChild(frag, node);
+  }
+
+  __findHits = Array.from(c.querySelectorAll("mark.sr-find"));
+  return __findHits.length;
+}
+
+function __findFocusCurrent(reveal) {
+  __findHits.forEach(m => m.classList.remove("sr-find-current"));
+  const cur = __findHits[__findIndex];
+  if (!cur) return;
+  cur.classList.add("sr-find-current");
+  if (reveal !== false) {
+    cur.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
+
+// 入口：q 为空字符串 → 清除高亮。reveal 默认滚动到首个命中。
+window.findInPage = function(q, opts) {
+  opts = opts || {};
+  const query = (q || "").trim();
+  __findClear();
+  if (!query) {
+    notify({ action: "findResult", count: 0, index: -1 });
+    return;
+  }
+  const count = __findBuild(query, !!opts.caseSensitive);
+  __findIndex = count > 0 ? 0 : -1;
+  __findFocusCurrent(opts.reveal);
+  notify({ action: "findResult", count: count, index: __findIndex });
+};
+
+window.findInPageNext = function() {
+  if (!__findHits.length) return;
+  __findIndex = (__findIndex + 1) % __findHits.length;
+  __findFocusCurrent(true);
+  notify({ action: "findResult", count: __findHits.length, index: __findIndex });
+};
+
+window.findInPagePrev = function() {
+  if (!__findHits.length) return;
+  __findIndex = (__findIndex - 1 + __findHits.length) % __findHits.length;
+  __findFocusCurrent(true);
+  notify({ action: "findResult", count: __findHits.length, index: __findIndex });
+};
+
+window.findInPageClose = function() {
+  __findClear();
+  notify({ action: "findResult", count: 0, index: -1 });
 };
 
 // 选中范围裁剪：三击/拖动时，WebKit 常把相邻的块级元素（段落、列表项、标题、

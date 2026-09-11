@@ -78,6 +78,11 @@ struct SkillReaderApp: App {
                     state.backToEntry()
                 }
                 .keyboardShortcut(.escape, modifiers: [])
+
+                Button(L10n.t("在页面中查找", "Find in Page")) {
+                    state.toggleFind()
+                }
+                .keyboardShortcut("f", modifiers: .command)
             }
 
             // 文档操作（飞书风格：编辑 + 分享）
@@ -125,7 +130,6 @@ struct SkillReaderApp: App {
                     // 由 SidebarView 响应，这里只触发状态切换
                     NotificationCenter.default.post(name: .skillReaderToggleSearch, object: nil)
                 }
-                .keyboardShortcut("f", modifiers: .command)
 
                 Divider()
 

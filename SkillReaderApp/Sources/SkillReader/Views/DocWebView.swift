@@ -189,6 +189,11 @@ struct DocWebView: NSViewRepresentable {
             case "openRaw":
                 state.revealActiveFile()
 
+            case "findResult":
+                let count = body["count"] as? Int ?? 0
+                let index = body["index"] as? Int ?? -1
+                state.updateFindResult(count: count, index: index)
+
             default:
                 break
             }

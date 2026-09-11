@@ -61,6 +61,13 @@ struct ContentView: View {
             ToolbarItem(placement: .automatic) {
                 HStack(spacing: 2) {
                     ToolbarIconButton(
+                        systemName: "magnifyingglass",
+                        help: L10n.t("在页面中查找 (⌘F)", "Find in Page (⌘F)")
+                    ) {
+                        state.toggleFind()
+                    }
+
+                    ToolbarIconButton(
                         systemName: "pencil",
                         help: state.canEditCurrent
                             ? L10n.t("在系统编辑器中打开 (⌘E)", "Open in system editor (⌘E)")
@@ -158,13 +165,19 @@ struct ContentView: View {
     // MARK: - 内容区（右侧）：面包屑 + 正文 + 可选大纲
 
     private var detail: some View {
-        HStack(spacing: 0) {
-            DocWebView(state: state)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if state.tocVisible {
-                Divider()
-                TocView()
-                    .frame(width: 220)
+        VStack(spacing: 0) {
+            if state.findVisible {
+                FindBar()
+                    .environmentObject(state)
+            }
+            HStack(spacing: 0) {
+                DocWebView(state: state)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if state.tocVisible {
+                    Divider()
+                    TocView()
+                        .frame(width: 220)
+                }
             }
         }
     }
@@ -264,6 +277,81 @@ private struct ToolbarIconMenu<Content: View, Label: View>: View {
                     isHovered = hovering
                 }
             }
+    }
+}
+
+// MARK: - 正文内查找栏（find-in-page）
+
+struct FindBar: View {
+    @EnvironmentObject var state: AppState
+    @FocusState private var fieldFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12))
+                .foregroundStyle(.tertiary)
+
+            TextField(L10n.t("在页面中查找", "Find in page"), text: $state.findText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .focused($fieldFocused)
+                .onSubmit { state.findNext() }
+                .onChange(of: state.findText) { _, newText in
+                    state.findInPage(newText)
+                }
+                .onKeyPress(.escape) {
+                    state.closeFind()
+                    return .handled
+                }
+
+            countLabel
+
+            HStack(spacing: 2) {
+                Button { state.findPrev() } label: {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help(L10n.t("上一个", "Previous"))
+
+                Button { state.findNext() } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help(L10n.t("下一个 (↩)", "Next (↩)"))
+
+                Button { state.closeFind() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help(L10n.t("关闭", "Close"))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+        .onAppear { fieldFocused = true }
+    }
+
+    private var countLabel: some View {
+        let total = state.findCount
+        let idx = state.findIndex
+        let text = total > 0
+            ? "\(idx + 1) / \(total)"
+            : (state.findText.isEmpty ? "" : L10n.t("无匹配", "No results"))
+        return Text(text)
+            .font(.system(size: 11))
+            .foregroundStyle(.tertiary)
+            .frame(minWidth: 52, alignment: .leading)
     }
 }
 

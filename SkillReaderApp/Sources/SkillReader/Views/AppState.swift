@@ -69,6 +69,12 @@ final class AppState: ObservableObject {
     @Published var searchDone = false
     @Published var searchExpanded = false               // 搜索框是否展开（ClaudeCode 风格折叠搜索）
 
+    // ---- 正文内查找（find-in-page）----
+    @Published var findVisible = false                 // 查找栏是否显示
+    @Published var findText = ""
+    @Published var findCount = 0                       // 命中数量
+    @Published var findIndex = -1                      // 当前命中序号（0-based，-1 表示无）
+
     // ---- 当前打开 ----
     @Published var activeSkill: Skill?
     @Published var activePath: String? = nil
@@ -1070,6 +1076,52 @@ final class AppState: ObservableObject {
         } else {
             selectSkill(skill)
         }
+    }
+
+    // MARK: - 正文内查找（find-in-page）
+
+    /// 切换查找栏：打开时正文内触发查找（复用当前 findText），
+    /// 关闭时清除高亮并复位计数。
+    func toggleFind() {
+        findVisible.toggle()
+        if findVisible {
+            findInPage(findText)
+        } else {
+            closeFind()
+        }
+    }
+
+    /// 输入即查找：把当前文字下发到正文 WebView 高亮。
+    func findInPage(_ text: String) {
+        findText = text
+        guard webReady, let webView else { return }
+        callJS("window.findInPage(\(jsonString(text)), {})", on: webView)
+    }
+
+    func findNext() {
+        guard webReady, let webView, findCount > 0 else { return }
+        callJS("window.findInPageNext()", on: webView)
+    }
+
+    func findPrev() {
+        guard webReady, let webView, findCount > 0 else { return }
+        callJS("window.findInPagePrev()", on: webView)
+    }
+
+    /// 关闭查找栏：复位状态并通知正文清除高亮。
+    func closeFind() {
+        findVisible = false
+        findText = ""
+        findCount = 0
+        findIndex = -1
+        guard webReady, let webView else { return }
+        callJS("window.findInPageClose()", on: webView)
+    }
+
+    /// 由正文 WebView 回传的查找结果（命中数量 / 当前序号）。
+    func updateFindResult(count: Int, index: Int) {
+        findCount = count
+        findIndex = index
     }
 
     // MARK: - 根目录
