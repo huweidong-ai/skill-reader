@@ -2071,46 +2071,47 @@ function isDoubleClick(ev) {
 document.addEventListener("mouseup", (ev) => {
   const dbl = isDoubleClick(ev);
   const clicks = (ev && ev.detail) ? ev.detail : 0;
-  setTimeout(() => {
-    try {
-      // 双击：直接选中整段文字
-      if (dbl || clicks >= 2) { selectBlockOnDoubleClick(ev.target); return; }
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-      const r = sel.getRangeAt(0);
-      const nodeOf = (n) => (n && n.nodeType === 3 ? n.parentElement : n);
-      const startEl = nodeOf(r.startContainer);
-      const endEl = nodeOf(r.endContainer);
-      const anchorEl = nodeOf(sel.anchorNode);
+  // 全部同步执行，不用 setTimeout：异步会让「原生选词 / 过宽选区」先被绘制出来、
+  // 再被我们替换成目标选区，肉眼可见两段式闪动。mouseup 时 WebKit 的选区已定型，
+  // 同步改写是安全的。
+  try {
+    // 双击：直接选中整段文字
+    if (dbl || clicks >= 2) { selectBlockOnDoubleClick(ev.target); return; }
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+    const r = sel.getRangeAt(0);
+    const nodeOf = (n) => (n && n.nodeType === 3 ? n.parentElement : n);
+    const startEl = nodeOf(r.startContainer);
+    const endEl = nodeOf(r.endContainer);
+    const anchorEl = nodeOf(sel.anchorNode);
 
-      // 1) li 粒度：跨列表项时裁剪回锚点所在 li
-      const startLi = startEl.closest("li");
-      const endLi = endEl.closest("li");
-      if (startLi && endLi && startLi !== endLi) {
-        clipSelectionToContainer(sel, anchorEl.closest("li") || startLi);
-        return;
-      }
+    // 1) li 粒度：跨列表项时裁剪回锚点所在 li
+    const startLi = startEl.closest("li");
+    const endLi = endEl.closest("li");
+    if (startLi && endLi && startLi !== endLi) {
+      clipSelectionToContainer(sel, anchorEl.closest("li") || startLi);
+      return;
+    }
 
-      // 2) .md-content 直接子块粒度：跨段落/标题/表格/列表等时裁剪回锚点所在块
-      // （正文结构是 article.md-body > div.md-content > p…，必须以 md-content 的
-      //   直接子元素为界；以前找「parent 带 md-body 类」会命中 md-content 这一层，
-      //   导致这一级从未生效。）
-      const outerBlock = (el) => {
-        let n = el;
-        while (n && n !== document.body) {
-          const p = n.parentElement;
-          if (p && (p.classList.contains("md-content") || p.classList.contains("md-body"))) return n;
-          n = p;
-        }
-        return null;
-      };
-      const startBlock = outerBlock(startEl);
-      const endBlock = outerBlock(endEl);
-      if (startBlock && endBlock && startBlock !== endBlock) {
-        clipSelectionToContainer(sel, outerBlock(anchorEl) || startBlock);
+    // 2) .md-content 直接子块粒度：跨段落/标题/表格/列表等时裁剪回锚点所在块
+    // （正文结构是 article.md-body > div.md-content > p…，必须以 md-content 的
+    //   直接子元素为界；以前找「parent 带 md-body 类」会命中 md-content 这一层，
+    //   导致这一级从未生效。）
+    const outerBlock = (el) => {
+      let n = el;
+      while (n && n !== document.body) {
+        const p = n.parentElement;
+        if (p && (p.classList.contains("md-content") || p.classList.contains("md-body"))) return n;
+        n = p;
       }
-    } catch (e) { /* 忽略异常，保持原生选择 */ }
-  }, 0);
+      return null;
+    };
+    const startBlock = outerBlock(startEl);
+    const endBlock = outerBlock(endEl);
+    if (startBlock && endBlock && startBlock !== endBlock) {
+      clipSelectionToContainer(sel, outerBlock(anchorEl) || startBlock);
+    }
+  } catch (e) { /* 忽略异常，保持原生选择 */ }
 }, true);
 
 // 把范围收缩到「文字本身」：跳过首尾纯空白，只保留首尾非空白字符之间的内容。
@@ -2144,7 +2145,8 @@ function selectBlockOnDoubleClick(target) {
     if (!el || !el.closest) return;
     // 代码内保持双击选词
     if (el.closest("pre, code, .code-body, .source-view, .plain-view")) return;
-    const block = el.closest("p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dt, dd");
+    const block = el.closest(
+      "p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dt, dd, .fm-title, .fm-desc");
     if (!block || !block.closest(".md-body")) return;
     const nr = document.createRange();
     nr.selectNodeContents(block);
