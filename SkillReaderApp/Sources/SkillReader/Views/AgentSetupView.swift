@@ -248,28 +248,50 @@ struct AgentSetupView: View {
     // MARK: 顶部说明
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(L10n.t("配置 skill 源", "Configure Skill Sources"))
-                .font(.system(size: 18, weight: .bold))
-            HStack(spacing: 0) {
-                Text(L10n.t("选择你要管理的 skill 来源，SkillReader 会挂载到 ",
-                            "Choose the skill sources you want to manage; SkillReader mounts them to "))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                Button {
-                    openSkillsMount()
-                } label: {
-                    Text("~/.agent/skills")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(Color.srAccent)
-                        .underline()
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L10n.t("配置 skill 源", "Configure Skill Sources"))
+                    .font(.system(size: 18, weight: .bold))
+                HStack(spacing: 0) {
+                    Text(L10n.t("选择你要管理的 skill 来源，SkillReader 会挂载到 ",
+                                "Choose the skill sources you want to manage; SkillReader mounts them to "))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Button {
+                        openSkillsMount()
+                    } label: {
+                        Text("~/.agent/skills")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(Color.srAccent)
+                            .underline()
+                    }
+                    .buttonStyle(.plain)
+                    Text(L10n.t(" 下统一查看与管理。未自动识别的路径可手动修改。",
+                                " for unified browsing and management. Paths not auto-detected can be edited manually."))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-                Text(L10n.t(" 下统一查看与管理。未自动识别的路径可手动修改。",
-                            " for unified browsing and management. Paths not auto-detected can be edited manually."))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
             }
+            // 左侧文案占满剩余宽度并允许换行，右侧按钮保持固有尺寸不被挤压
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+
+            // 右上角操作：本页从右上角「设置」进入，按钮就近放同一区域，操作动线更短。
+            HStack(spacing: 8) {
+                Button(L10n.t("稍后配置", "Configure Later")) {
+                    state.skipSetup()
+                }
+                .keyboardShortcut(.escape, modifiers: [])
+                .buttonStyle(.bordered)
+
+                Button(L10n.t("完成配置", "Finish Setup")) {
+                    state.finishSetup(agents)
+                }
+                .keyboardShortcut(.return, modifiers: .command)
+                .buttonStyle(.borderedProminent)
+                .disabled(agents.isEmpty)
+            }
+            .fixedSize()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
@@ -285,19 +307,6 @@ struct AgentSetupView: View {
                 .foregroundStyle(.tertiary)
 
             Spacer()
-
-            Button(L10n.t("稍后配置", "Configure Later")) {
-                state.skipSetup()
-            }
-            .keyboardShortcut(.escape, modifiers: [])
-            .buttonStyle(.bordered)
-
-            Button(L10n.t("完成配置", "Finish Setup")) {
-                state.finishSetup(agents)
-            }
-            .keyboardShortcut(.return, modifiers: .command)
-            .buttonStyle(.borderedProminent)
-            .disabled(agents.isEmpty)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
