@@ -82,6 +82,59 @@ struct ContentView: View {
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
                     .help(L10n.t("分享：Finder 定位 + 复制路径 (⇧⌘S)", "Share: Finder locate + copy path (⇧⌘S)"))
+
+                    // 设置：与菜单栏「设置」同内容，齿轮下拉，避免藏在菜单栏里找不到
+                    Menu {
+                        Button(L10n.t("搜索…", "Search…")) {
+                            NotificationCenter.default.post(name: .skillReaderToggleSearch, object: nil)
+                        }
+
+                        Divider()
+
+                        Button(L10n.t("重新加载技能", "Reload Skills")) {
+                            state.reloadSkills()
+                            state.flashToast(L10n.t("已刷新", "Refreshed"))
+                        }
+
+                        Button(L10n.t("配置 skill 源", "Configure Skill Sources")) {
+                            state.reopenSetup()
+                        }
+
+                        Button(L10n.t("同步分发到已启用智能体", "Sync Distribute to Enabled Agents")) {
+                            state.syncDistribution()
+                        }
+
+                        Divider()
+
+                        Menu(L10n.t("主题", "Theme")) {
+                            ForEach(ThemeMode.allCases) { mode in
+                                Button {
+                                    state.setTheme(mode)
+                                } label: {
+                                    Text(mode.label + (state.theme == mode ? " ✓" : ""))
+                                }
+                            }
+                        }
+
+                        Menu(L10n.t("语言", "Language")) {
+                            ForEach(L10n.Language.allCases) { lang in
+                                Button {
+                                    L10n.override = lang
+                                } label: {
+                                    Text(lang.displayName + (L10n.override == lang ? " ✓" : ""))
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 14))
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .help(L10n.t("设置", "Settings"))
                 }
             }
         }
