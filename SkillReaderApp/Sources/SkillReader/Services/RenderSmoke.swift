@@ -260,15 +260,20 @@ enum RenderSmoke {
             }
         }
 
-        // 专项验证 B：双击选中整段 —— 双击 p2 后，选区应覆盖该段全部文字，
-        // 且首尾不带空白（复制出来是干净文本），不越界到其它块。
-        do {
+        // 专项验证 B：双击选中整段 —— 两条触发路径都要生效（dblclick 事件，以及
+        // mouseup 且 detail>=2）。结果：选区覆盖整段文字、首尾无空白、不越界到相邻块。
+        func checkDoubleClickSelectsBlock(index: Int, eventName: String, label: String, twice: Bool = false) {
             let jsSetup = """
             (function() {
               try {
                 var ps = document.querySelectorAll('#content .md-content > p');
-                if (ps.length < 2) return JSON.stringify({setup: 'few-ps'});
-                ps[1].dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
+                if (ps.length <= \(index)) return JSON.stringify({setup: 'few-ps'});
+                function fire() {
+                  ps[\(index)].dispatchEvent(new MouseEvent('\(eventName)',
+                    {bubbles: true, detail: \(twice ? 1 : 2), clientX: 120, clientY: 120}));
+                }
+                fire();
+                \(twice ? "fire();" : "")
                 return JSON.stringify({setup: 'ok'});
               } catch (e) { return JSON.stringify({setup: 'error', err: String(e)}); }
             })()
@@ -287,68 +292,73 @@ enum RenderSmoke {
             while !setupDone && Date() < sDeadline {
                 RunLoop.main.run(until: Date().addingTimeInterval(0.05))
             }
-            if setupState == "ok" {
-                let jsVerify = """
-                (function() {
-                 try {
-                  var ps = document.querySelectorAll('#content .md-content > p');
-                  var p2 = ps[1];
-                  var sel = window.getSelection();
-                  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return JSON.stringify({pass: false, why: 'no-selection'});
-                  var r = sel.getRangeAt(0);
-                  var nodeOf = function(n) { return n.nodeType === 3 ? n.parentElement : n; };
-                  var blockOf = function(el) {
-                    var n = el;
-                    while (n && n !== document.body) {
-                      var pp = n.parentElement;
-                      if (pp && (pp.classList.contains('md-content') || pp.classList.contains('md-body'))) return n;
-                      n = pp;
-                    }
-                    return null;
-                  };
-                  var got = sel.toString();
-                  // 段落内软换行在渲染/复制时表现为空格，比较时统一按空白归一，
-                  // 只校验文字内容一致 + 首尾无空白 + 不越界。
-                  var norm = function(s) { return s.replace(/\\s+/g, ' ').trim(); };
-                  var want = norm(p2.textContent);
-                  var inP2 = blockOf(nodeOf(r.startContainer)) === p2 && blockOf(nodeOf(r.endContainer)) === p2;
-                  var sameText = norm(got) === want;
-                  var noEdgeBlank = got === got.replace(/^\\s+/, '') && got === got.replace(/\\s+$/, '');
-                  return JSON.stringify({
-                    pass: !!(inP2 && sameText && noEdgeBlank),
-                    inP2: !!inP2, sameText: !!sameText, noEdgeBlank: !!noEdgeBlank,
-                    gotLen: got.length, wantLen: want.length
-                  });
-                 } catch (e) { return JSON.stringify({pass: false, err: String(e)}); }
-                })()
-                """
-                var verifyDone = false
-                var verifyPass: Bool?
-                var verifyDetail = ""
-                webView.evaluateJavaScript(jsVerify) { obj, err in
-                    if let err { verifyDetail = "JS_ERROR: \(err.localizedDescription)" }
-                    if let s = obj as? String,
-                       let d = s.data(using: .utf8),
-                       let parsed = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
-                        if verifyPass == nil { verifyPass = parsed["pass"] as? Bool }
-                        verifyDetail += "\(parsed)"
-                    }
-                    verifyDone = true
+            guard setupState == "ok" else {
+                print("\(label): SKIP（\(setupState)）")
+                return
+            }
+            // 等 mouseup 分支的 setTimeout(0) 执行
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            let jsVerify = """
+            (function() {
+             try {
+              var ps = document.querySelectorAll('#content .md-content > p');
+              var target = ps[\(index)];
+              var sel = window.getSelection();
+              if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return JSON.stringify({pass: false, why: 'no-selection'});
+              var r = sel.getRangeAt(0);
+              var nodeOf = function(n) { return n.nodeType === 3 ? n.parentElement : n; };
+              var blockOf = function(el) {
+                var n = el;
+                while (n && n !== document.body) {
+                  var pp = n.parentElement;
+                  if (pp && (pp.classList.contains('md-content') || pp.classList.contains('md-body'))) return n;
+                  n = pp;
                 }
-                let vDeadline = Date().addingTimeInterval(5)
-                while !verifyDone && Date() < vDeadline {
-                    RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+                return null;
+              };
+              var got = sel.toString();
+              // 段落内软换行在渲染/复制时表现为空格，比较时统一按空白归一，
+              // 只校验文字内容一致 + 首尾无空白 + 不越界。
+              var norm = function(s) { return s.replace(/\\s+/g, ' ').trim(); };
+              var want = norm(target.textContent);
+              var inBlock = blockOf(nodeOf(r.startContainer)) === target && blockOf(nodeOf(r.endContainer)) === target;
+              var sameText = norm(got) === want;
+              var noEdgeBlank = got === got.replace(/^\\s+/, '') && got === got.replace(/\\s+$/, '');
+              return JSON.stringify({
+                pass: !!(inBlock && sameText && noEdgeBlank),
+                inBlock: !!inBlock, sameText: !!sameText, noEdgeBlank: !!noEdgeBlank,
+                gotLen: got.length, wantLen: want.length
+              });
+             } catch (e) { return JSON.stringify({pass: false, err: String(e)}); }
+            })()
+            """
+            var verifyDone = false
+            var verifyPass: Bool?
+            var verifyDetail = ""
+            webView.evaluateJavaScript(jsVerify) { obj, err in
+                if let err { verifyDetail = "JS_ERROR: \(err.localizedDescription)" }
+                if let s = obj as? String,
+                   let d = s.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                    if verifyPass == nil { verifyPass = parsed["pass"] as? Bool }
+                    verifyDetail += "\(parsed)"
                 }
-                print("双击选中整段: \(verifyDetail)")
-                if verifyPass != true {
-                    failures.append("双击未选中整段文字（应覆盖整段且首尾无空白）")
-                }
-            } else if setupState == "few-ps" {
-                print("双击选中整段: SKIP（技能正文段落数不足）")
-            } else {
-                print("双击选中整段: SKIP（setup=\(setupState)）")
+                verifyDone = true
+            }
+            let vDeadline = Date().addingTimeInterval(5)
+            while !verifyDone && Date() < vDeadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
+            print("\(label): \(verifyDetail)")
+            if verifyPass != true {
+                failures.append("\(label) 未选中整段文字（应覆盖整段且首尾无空白）")
             }
         }
+        checkDoubleClickSelectsBlock(index: 1, eventName: "dblclick", label: "双击选中整段(dblclick)")
+        checkDoubleClickSelectsBlock(index: 2, eventName: "mouseup", label: "双击选中整段(mouseup detail=2)")
+        // 真实双击的最小模型：连续两次 mouseup（detail 均为 1，坐标一致）
+        checkDoubleClickSelectsBlock(index: 3, eventName: "mouseup",
+                                     label: "双击选中整段(两次 mouseup)", twice: true)
 
         // 专项验证：找一个含特殊字符（>&2、tab 缩进）的 bash 脚本，
         // 看 hljs 输出是否含字面 `\n`（两字符），确认 sanitizeHljs 生效

@@ -2055,9 +2055,26 @@ function clipSelectionToContainer(sel, container) {
   sel.addRange(nr);
 }
 
-document.addEventListener("mouseup", () => {
+// 双击判定：不依赖引擎是否派发 dblclick，也不依赖 MouseEvent.detail 的语义差异
+// （各引擎对 mouseup 的 detail 取值不一致），按「两次 mouseup 的时间与位置」自己判定。
+let __lastMouseUp = null;
+function isDoubleClick(ev) {
+  const now = Date.now();
+  const x = ev.clientX || 0, y = ev.clientY || 0;
+  const last = __lastMouseUp;
+  __lastMouseUp = { t: now, x: x, y: y };
+  if (!last) return false;
+  if (now - last.t > 500) return false;
+  return Math.abs(x - last.x) <= 4 && Math.abs(y - last.y) <= 4;
+}
+
+document.addEventListener("mouseup", (ev) => {
+  const dbl = isDoubleClick(ev);
+  const clicks = (ev && ev.detail) ? ev.detail : 0;
   setTimeout(() => {
     try {
+      // 双击：直接选中整段文字
+      if (dbl || clicks >= 2) { selectBlockOnDoubleClick(ev.target); return; }
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
       const r = sel.getRangeAt(0);
@@ -2096,10 +2113,8 @@ document.addEventListener("mouseup", () => {
   }, 0);
 }, true);
 
-// 双击选中整段：双击正文文本块时，把选区扩展到该块的全部文字，但不含块尾
-// 空白/换行——复制出来就是干净的段落文本，不会「总带上空白」。
-// 代码块（pre/code）与源码/纯文本视图内保持双击选词，方便只复制一个标识符；
-// 整块代码可用右上角「复制代码」按钮。
+// 把范围收缩到「文字本身」：跳过首尾纯空白，只保留首尾非空白字符之间的内容。
+// 用于双击选整段，避免复制出来带前导/尾随空白或空行。
 function trimRangeToText(range, root) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (t) => (/[^\s]/.test(t.textContent) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT)
@@ -2114,12 +2129,18 @@ function trimRangeToText(range, root) {
   range.setEnd(last, endOffset);
 }
 
-document.addEventListener("dblclick", (ev) => {
+// 双击选中整段：双击正文文本块时把选区扩展到该块全部文字，但不含块尾空白/换行
+// ——复制出来就是干净的段落文本，不会「总带上空白」。
+// 代码块（pre/code）与源码/纯文本视图内保持双击选词，方便只复制一个标识符；
+// 整块代码用右上角「复制代码」按钮。
+// 触发路径有两条，都保留：mouseup 的 detail>=2（WKWebView 一定派发）与 dblclick
+// 事件（部分环境下不派发，作为兜底/二次触发，两者结果一致、幂等）。
+function selectBlockOnDoubleClick(target) {
   try {
     const sel = window.getSelection();
     if (!sel) return;
     const nodeOf = (n) => (n && n.nodeType === 3 ? n.parentElement : n);
-    const el = nodeOf(ev.target);
+    const el = nodeOf(target);
     if (!el || !el.closest) return;
     // 代码内保持双击选词
     if (el.closest("pre, code, .code-body, .source-view, .plain-view")) return;
@@ -2131,6 +2152,10 @@ document.addEventListener("dblclick", (ev) => {
     sel.removeAllRanges();
     sel.addRange(nr);
   } catch (e) { /* 忽略异常，保持原生行为 */ }
+}
+
+document.addEventListener("dblclick", (ev) => {
+  selectBlockOnDoubleClick(ev.target);
 });
 
 // 初始加载完成通知
