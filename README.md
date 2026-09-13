@@ -45,6 +45,11 @@ open /Applications/SkillReader.app
 ## 使用
 
 1. 首次启动完成 Agent 配置（勾选本机已安装的 Agent 纳入管理），阅读器自动挂载其技能库
+
+   <p align="center">
+     <img src="docs/screenshots/skillreader-setup.jpg" alt="配置 skill 源：选择并挂载本机已安装的 Agent 技能库" width="880">
+   </p>
+
 2. 左侧点击技能名展开文件树，自动打开 `SKILL.md`；点击任一文件切换查看
 3. 顶栏搜索框：输入即过滤技能列表，回车进行内容全局搜索
 4. 右键某 skill → 「互通：复制到中心库并分发…」：先导入中心库，再勾选要共享的 Agent

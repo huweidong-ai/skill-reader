@@ -46,6 +46,11 @@ Requirements: macOS 14+, Xcode Command Line Tools (with Swift 6).
 ## Usage
 
 1. Complete Agent setup on first launch (enable installed Agents), the reader mounts their skill libraries
+
+   <p align="center">
+     <img src="docs/screenshots/skillreader-setup.jpg" alt="Configure skill sources: select and mount the skill libraries of installed Agents" width="880">
+   </p>
+
 2. Click a skill name in the sidebar to expand its file tree — `SKILL.md` opens automatically; click any file to view it
 3. Top-bar search filters the list as you type; press Enter for full-content search
 4. Right-click a skill → "互通：复制到中心库并分发…": import to library, then pick target Agents
