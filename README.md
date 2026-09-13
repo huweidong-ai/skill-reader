@@ -2,6 +2,10 @@
 
 [🇨🇳 中文](README.md) · [🇺🇸 English](README.en.md)
 
+<p align="center">
+  <img src="docs/screenshots/skillreader-main.jpg" alt="SkillReader 主界面：左侧 skill 包列表，中间渲染后的 SKILL.md，上方为工具栏" width="880">
+</p>
+
 一个本地优先的 **skill 包阅读器与管理器**：浏览本机技能库（`SKILL.md` + `references/` + `scripts/`），
 Markdown 渲染阅读；并让纳入管理的 skill 在多个 Agent（Claude Code / OpenClaw / WorkBuddy …）之间共享。
 

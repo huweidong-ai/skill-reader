@@ -2,6 +2,10 @@
 
 [🇨🇳 中文](README.md) · [🇺🇸 English](README.en.md)
 
+<p align="center">
+  <img src="docs/screenshots/skillreader-main.jpg" alt="SkillReader main window: skill package list on the left, rendered SKILL.md in the center, toolbar on top" width="880">
+</p>
+
 A local-first **skill package reader and manager**: browse your local skill libraries
 (`SKILL.md` + `references/` + `scripts/`) with rendered Markdown, and share managed skills
 across multiple Agents (Claude Code / OpenClaw / WorkBuddy …).
