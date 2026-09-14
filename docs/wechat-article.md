@@ -7,6 +7,8 @@
 
 我自己一直在用的就有 Claude Code、WorkBuddy、OpenClaw、ChatGPT（Codex）、OpenCode。而 SkillReader 内置探测支持的 Agent 一共有 12 个——OpenAI 的 Codex CLI、Google 的 Gemini CLI、字节的 Trae、阿里的 QoderWork、月之暗面的 Kimi Code……你装了几个，它就认出几个。
 
+没在名单里的 Agent 也不用担心：支持**自定义添加**——把 skill 文件夹直接拖进配置页，或者点一下虚线框选中文件夹，它会自动递归识别出里面所有的 skill，一个不落。
+
 每个 Agent 都在悄悄帮你攒**技能（skill）**。攒得越来越多，然后呢？
 
 **然后就没有然后了。**
