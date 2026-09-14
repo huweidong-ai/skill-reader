@@ -26,7 +26,7 @@
 - **`scripts/`**：可执行脚本；
 - **`assets/`**：模板、图标。
 
-关键在它的加载机制，叫**渐进式加载**：平时只有每条 skill 的 description（一段触发场景 + 触发词）常驻在 Agent 的上下文里，成本极低；当你说了匹配的话——比如"帮我写个 skill"——Agent 才把对应的 SKILL.md 正文加载进来，需要细节时再去读 references。
+关键在它的加载机制，叫**渐进式加载**：平时只有每条 skill 的 description（一段触发场景 + 触发词）常驻在 Agent 的上下文里，成本极低；当你说了匹配的话——比如"给这个项目写个 README"——Agent 才把对应的 SKILL.md 正文加载进来，需要细节时再去读 references。
 
 这个设计对 Agent 极其友好。但请注意一件事：
 
