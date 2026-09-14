@@ -1,11 +1,11 @@
 # 我给 AI Agent 的技能库写了个阅读器，今天开源了
 
-> skill 只写给 Agent 看，从来没人好好读过它。
+> Agent 的 skill 越攒越多，你却从没打开看过一眼。
 > macOS 原生阅读器 · 跨 Agent 共享 · 今日开源
 
 现在谁电脑里还没装几个 AI Agent。
 
-我自己常年在用的就有 Claude Code、WorkBuddy、OpenClaw、ChatGPT（Codex）、OpenCode。而 SkillReader 内置探测支持的 Agent 一共有 12 个——OpenAI 的 Codex CLI、Google 的 Gemini CLI、字节的 Trae、阿里的 QoderWork、月之暗面的 Kimi Code……你装了几个，它就认出几个。
+我自己一直在用的就有 Claude Code、WorkBuddy、OpenClaw、ChatGPT（Codex）、OpenCode。而 SkillReader 内置探测支持的 Agent 一共有 12 个——OpenAI 的 Codex CLI、Google 的 Gemini CLI、字节的 Trae、阿里的 QoderWork、月之暗面的 Kimi Code……你装了几个，它就认出几个。
 
 每个 Agent 都在悄悄帮你攒**技能（skill）**。攒得越来越多，然后呢？
 
@@ -30,9 +30,9 @@
 
 这个设计对 Agent 极其友好。但请注意一件事：
 
-**SKILL.md 默认的读者是 Agent——全文没为「人读」做过一分优化。**
+**SKILL.md 默认的读者是 Agent——但你要想不断优化 skill、让 Agent 少走弯路，就得先读懂它。**
 
-而人，恰恰需要读它。你得知道自己的 Agent 装了什么能力、某个 skill 什么时候会被触发、里面到底让它怎么干——不然出了问题你连排查都不知道从哪下手。
+你得知道自己的 Agent 装了什么能力、某个 skill 什么时候会被触发、里面到底让它怎么干——不然出了问题你连排查都不知道从哪下手。
 
 问题就在这：**skill 这东西，只对 Agent 友好，对人极不友好。**
 
