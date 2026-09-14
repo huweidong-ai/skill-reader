@@ -5,7 +5,7 @@
 
 现在谁电脑里还没装几个 AI Agent。
 
-我自己机器上就装着 Claude Code、WorkBuddy、OpenClaw……粗粗一数，SkillReader 里内置探测的 Agent 就有 12 个：OpenAI 的 Codex CLI、Google 的 Gemini CLI、字节的 Trae、阿里的 QoderWork、月之暗面的 Kimi Code，等等。
+我自己常年在用的就有 Claude Code、WorkBuddy、OpenClaw、ChatGPT（Codex）、OpenCode。而 SkillReader 内置探测支持的 Agent 一共有 12 个——OpenAI 的 Codex CLI、Google 的 Gemini CLI、字节的 Trae、阿里的 QoderWork、月之暗面的 Kimi Code……你装了几个，它就认出几个。
 
 每个 Agent 都在悄悄帮你攒**技能（skill）**。攒得越来越多，然后呢？
 
@@ -30,7 +30,7 @@
 
 这个设计对 Agent 极其友好。但请注意一件事：
 
-**SKILL.md 是写给 Agent 看的，不是写给人看的。**
+**SKILL.md 默认的读者是 Agent——全文没为「人读」做过一分优化。**
 
 而人，恰恰需要读它。你得知道自己的 Agent 装了什么能力、某个 skill 什么时候会被触发、里面到底让它怎么干——不然出了问题你连排查都不知道从哪下手。
 
