@@ -7,3 +7,4 @@ __pycache__/
 design-preview-light.html
 design-preview-dark.html
 .workbuddy/
+dist/
