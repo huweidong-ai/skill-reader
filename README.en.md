@@ -8,6 +8,20 @@ across multiple Agents (Claude Code / OpenClaw / WorkBuddy …).
 
 A native macOS desktop app (SwiftUI + WKWebView). Double-click to launch — no browser or backend service needed.
 
+## Why it exists
+
+Every AI Agent accumulates "skills" — folders containing a `SKILL.md` plus
+`references/` (docs), `scripts/`, and `assets/` (templates).
+`SKILL.md` is an operation manual written *for the Agent*: only its description stays in context,
+and the full body loads on trigger (progressive disclosure). To improve a skill and keep your Agent from
+going astray, you need to read it — but in practice:
+
+- **Buried deep**: skills live inside Agents' nested hidden directories (`~/.claude/skills`, `~/.workbuddy/skills`…). Previewing or editing one means hunting it down first.
+- **Unreadable**: `cat` in a terminal gives you raw Markdown — frontmatter, outline, and code blocks mashed together.
+- **Unshareable**: using one skill across several Agents means copy-paste — edit one copy, forget the other, versions silently drift apart.
+
+SkillReader is built for exactly these three problems.
+
 ## What it does
 
 > **Two core capabilities**: SkillReader does just two things, and does them well — **📖 read** your skill sources, and **🔗 share** them across all your Agents. The two screenshots below are the real UI for exactly these two pillars.
@@ -20,7 +34,9 @@ A native macOS desktop app (SwiftUI + WKWebView). Double-click to launch — no 
 - Script viewing: `.py` and other code files with line numbers and selection-to-copy
 - Direct preview of images / PDF / JSON / YAML
 - Reading / source mode toggle (`⌘/`)
+- In-page find (`Cmd+F`): all matches highlighted, Enter to jump between them
 - Global search over skill names / descriptions / content; reveal files in Finder
+- `⌘E` opens the current file in your default editor (VSCode, Typora, etc.) — edit, save, done
 
 <p align="center">
   <img src="docs/screenshots/skillreader-main.jpg" alt="SkillReader reading UI: skill package list on the left, rendered SKILL.md in the center (YAML frontmatter card, code highlighting, right-side outline), toolbar on top" width="880">
@@ -32,6 +48,9 @@ A native macOS desktop app (SwiftUI + WKWebView). Double-click to launch — no 
 - Library entries are named `<ownerAgentId>__<skillName>` (e.g. `claude-code__ego-browser`) so same-named skills across Agents never collide
 - Or right-click a skill → "复制到中心库并分发…" to import manually and pick target Agents; top-bar "Sync" rebuilds distribution anytime
 - Before adoption the original folders are moved to `~/.agent/backups/<agentId>/` (recoverable); besides adoption the app only cleans up links it created pointing to the library, and never touches Agents' own skills
+
+The setup view auto-detects 12 common Agents (Claude Code, WorkBuddy, OpenClaw, Codex CLI, Gemini CLI, Trae, QoderWork, Kimi Code…) — it recognizes whatever you have installed.
+Agents not on the list can be **added manually**: drag a skill folder into the setup view or click the dashed box to pick one — all skills inside are discovered recursively.
 
 <p align="center">
   <img src="docs/screenshots/skillreader-setup.jpg" alt="Configure skill sources: enable the Agents installed on this machine; SkillReader mounts their skill libraries automatically — the prerequisite for sharing" width="880">

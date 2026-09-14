@@ -7,6 +7,19 @@ Markdown 渲染阅读；并让纳入管理的 skill 在多个 Agent（Claude Cod
 
 原生 macOS 桌面应用（SwiftUI + WKWebView），双击即用，无需浏览器与后端服务。
 
+## 为什么需要它
+
+每个 AI Agent 都有自己的「技能包」（skill）——一个带 `SKILL.md` 的文件夹，
+附上 `references/`（参考文档）、`scripts/`（脚本）、`assets/`（模板）。
+`SKILL.md` 是写给 Agent 看的操作手册：平时只有 description 常驻上下文，
+说中触发词才把正文加载进来（渐进式加载）。想优化 skill、让 Agent 少走弯路，就得先读懂它——可现实中：
+
+- **埋得深**：skill 藏在各 Agent 层层包裹的隐藏目录（`~/.claude/skills`、`~/.workbuddy/skills`……），想预览、想编辑，光「找到它」这一步就够费劲；
+- **没法读**：终端 `cat` 出来的是原始 Markdown，frontmatter、目录、代码块全糊在一起；
+- **没法共享**：同一个 skill 想让多个 Agent 用，只能复制粘贴——改了一处忘了另一处，版本悄悄漂移。
+
+SkillReader 就是为这三件事生的。
+
 ## 能做什么
 
 > **两大核心**：SkillReader 只把两件事做到位——**📖 阅读**你的 skill 源码，**🔗 共享**给所有 Agent。下面两张真实界面截图，正好对应这两项核心能力。
@@ -19,7 +32,9 @@ Markdown 渲染阅读；并让纳入管理的 skill 在多个 Agent（Claude Cod
 - 脚本高亮查看：`.py` 等代码文件带行号、选中复制
 - 图片 / PDF / JSON / YAML 直接预览
 - 阅读 / 源码模式切换（`⌘/`）
+- 页内查找（`Cmd+F`）：关键词命中全部高亮，回车逐条跳转
 - 技能名/描述/内容全局搜索；一键在 Finder 中定位文件
+- `⌘E` 在系统默认编辑器（VSCode、Typora 等）中打开当前文件，改完即存即生效
 
 <p align="center">
   <img src="docs/screenshots/skillreader-main.jpg" alt="SkillReader 阅读界面：左侧 skill 包列表，中间渲染后的 SKILL.md（含 YAML frontmatter 卡片、代码高亮、右侧目录大纲），上方为工具栏" width="880">
@@ -31,6 +46,9 @@ Markdown 渲染阅读；并让纳入管理的 skill 在多个 Agent（Claude Cod
 - 中心库条目以 `<ownerAgentId>__<skillName>` 命名（如 `claude-code__ego-browser`），跨 Agent 同名 skill 互不覆盖、各自独立分发
 - 也可右键某 skill → 「复制到中心库并分发…」手动导入并勾选目标 Agent；顶栏「同步」按钮随时重建分发
 - 采纳前原真实目录整体移入 `~/.agent/backups/<agentId>/` 可恢复；除采纳外，应用只清理「自己建的、指向中心库」的链接，绝不覆盖或删除各 Agent 自行安装的 skill
+
+配置页内置探测 12 个常见 Agent（Claude Code、WorkBuddy、OpenClaw、Codex CLI、Gemini CLI、Trae、QoderWork、Kimi Code 等），装了几个认出几个；
+不在名单里的 Agent 支持**自定义添加**——把 skill 文件夹直接拖进配置页，或点虚线框选择文件夹，自动递归识别其中全部 skill。
 
 <p align="center">
   <img src="docs/screenshots/skillreader-setup.jpg" alt="配置 skill 源：勾选本机已安装的 Agent 纳入管理，SkillReader 自动挂载其技能库——这是「共享」的前提" width="880">
