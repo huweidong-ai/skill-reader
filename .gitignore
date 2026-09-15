@@ -9,3 +9,8 @@ design-preview-dark.html
 *.miora
 .workbuddy/
 dist/
+
+# 公众号写作素材（仅本地保留，不进版本控制）
+docs/wechat-article*
+docs/screenshots/skillreader-find.jpg
+docs/screenshots/skillreader-cover.jpg
