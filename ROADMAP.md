@@ -8,10 +8,10 @@
 ## 产品迭代计划（2026-10 制定）
 
 ### 阶段 0 · 分发零门槛（本周，不写核心代码，回报最大）
-- [ ] GitHub Releases 挂 .dmg（附「右键打开」说明；后续争取签名+公证，避免 Gatekeeper 拦截）
-- [ ] Homebrew cask formula（自建 tap 起步，再提官方 homebrew-cask）
-- [ ] README 强化定位叙事：阅读深度（渲染/TOC/查找/⌘E）+ 单一真相源 B 模式（adopt 备份可恢复、只清自己建的链接）
-- [ ] 双语 README 同步更新；补安装截图与 10 秒上手路径
+- [x] .dmg 打包脚本 + GitHub Actions 自动发版（本地已实测；下一步打 `v*` tag 触发首次 Release）
+- [ ] 建自建 tap 仓库并发布 cask（模板见 `docs/homebrew-cask.md`）
+- [x] README 强化定位叙事并更新三选一安装入口（中/英）
+- [ ] 后续争取签名 + 公证，避免 Gatekeeper 拦截
 
 ### 阶段 1 · 高感知功能补齐（当前「共享」阶段收尾）
 - [ ] **批量共享**：多选 skills 一键进中心库并分发（roadmap 原有项）
