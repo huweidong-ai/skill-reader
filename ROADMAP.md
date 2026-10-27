@@ -28,8 +28,13 @@
 - [ ] `skillreader` CLI：`list / install / remove / sync`，支持 `--json`，与桌面端共享数据层
 - [ ] 内置 `manage-skills` 技能：让 Agent 经 CLI 自主装卸并汇报
 
-### 阶段 4 · 跨平台评估（缓行，但保留路径）
-- [ ] 评估 Tauri/Web 版**纯阅读器**子集（阅读不涉文件写入，跨平台成本低）；管理/分发层留原生或按平台适配
+### 阶段 4 · 跨平台路径（分层渐进，不推倒重来）
+> 阅读层（render.html，Web 技术）几乎零成本跨平台；数据层（文件 IO + symlink）逻辑可移植、平台细节需适配；UI 壳（SwiftUI）仅 macOS。
+
+- [ ] **4a 苹果生态（1-2 周）**：SwiftUI 编译 iPad/Catalyst 阅读器版；Agent 目录探测做成可注入配置
+- [ ] **4b Tauri 阅读器子集（1-2 月）**：UI 壳换 Tauri 2，`render.html` 直接复用；先做**只读**（扫描 Agent 目录 + 渲染阅读 + 搜索），绕开 Windows symlink 坑
+- [ ] **4c 数据层移植**：中心库/分发引擎用 Rust 重写——macOS/Linux 用 symlink，Windows 用 junction/copy 回退（copy 模式需明示「同步副本」语义）；Swift 数据层 109 项自测断言作为移植验收标准
+- [ ] **4d 跨平台 CLI**：Rust 实现（与 4c 同库），天然三平台并覆盖 WSL 场景
 
 ### 贯穿 · 传播
 - [ ] 1-2 分钟演示视频（YouTube/B 站）
