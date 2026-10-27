@@ -1,0 +1,140 @@
+# CI/CD · 自动构建 + 测试 + 发布（仅 macOS）
+#
+# 覆盖场景：
+#   - push / pull_request 到 main：跑「构建 + 自测」
+#   - 打 tag（v*）：跑「构建 + 自测 + 打包 dmg + 上传 Release」
+#
+# 产物：
+#   - 每次 build：SkillReader.app（unzip 即可拖入 应用程序）
+#   - Release 时：SkillReader.dmg + 更新后的 CHANGELOG
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+# 同一分支只保留最新一次运行，节省资源
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write   # release 步骤需要创建 GitHub Release
+
+jobs:
+  # ─────────────────────────────────────────────
+  #  1) 编译 + 测试 + 打包
+  # ─────────────────────────────────────────────
+  build:
+    runs-on: macos-14
+    env:
+      APP_NAME: SkillReader
+      BUNDLE_ID: com.hwd.skillreader
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # ── 解析版本号（从 tag 或 git describe）
+      - name: 解析 App 版本
+        id: version
+        run: |
+          if [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_name }}" =~ ^v ]]; then
+            echo "app_version=${{ github.ref_name#v }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "app_version=$(git describe --tags --abbrev=0 2>/dev/null || echo 0.0)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── 装 Xcode CLT / Swift
+      - name: 安装依赖
+        run: xcodebuild -version || xcode-select --install
+
+      # ── 编译（release 模式）
+      - name: 编译
+        working-directory: SkillReaderApp
+        run: |
+          /usr/bin/python3 scripts/build_render.py
+          swift build -c release
+
+      # ── 跑数据层自测（79 项断言）
+      - name: 自测
+        working-directory: SkillReaderApp
+        run: |
+          .build/release/SkillReader --self-test
+
+      # ── 渲染链路冒烟测试
+      - name: 渲染冒烟
+        working-directory: SkillReaderApp
+        run: |
+          .build/release/SkillReader --render-smoke
+
+      # ── 打包 .app
+      - name: 打包 .app
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        working-directory: SkillReaderApp
+        run: ./scripts/build_app.sh /tmp/${{ env.APP_NAME }}.app
+
+      # ── 压 tar.gz 供下载（macOS 自带，无需解压工具）
+      - name: 压缩
+        working-directory: /tmp
+        run: tar -czf "$GITHUB_WORKSPACE/SkillReader.tar.gz" SkillReader.app
+
+      # ── 上传构建产物
+      - name: 上传产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkillReader
+          path: SkillReader.tar.gz
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  #  2) 打 tag 时发布
+  # ─────────────────────────────────────────────
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-14
+    env:
+      APP_NAME: SkillReader
+    steps:
+      - name: 拉取构建产物
+        uses: actions/download-artifact@v4
+        with:
+          name: SkillReader
+          path: dist
+
+      - name: 解压
+        working-directory: dist
+        run: tar -xzf SkillReader.tar.gz
+
+      - name: 打包 dmg
+        run: |
+          cd dist
+          # 创建安装盘布局
+          mkdir -p ${{ env.APP_NAME }}-dmg
+          mv SkillReader.app ${{ env.APP_NAME }}-dmg/
+          # 放一个「拖到 应用程序」的符号链接，用户拖完即完事
+          ln -s /Applications ${{ env.APP_NAME }}-dmg/Applications
+          # 打 dmg
+          hdiutil create -volname ${{ env.APP_NAME }} \
+            -srcfolder ${{ env.APP_NAME }}-dmg \
+            -imageformat UDBZ \
+            -size 512m \
+            -ov -quiet ${{ env.APP_NAME }}.dmg
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ env.APP_NAME }} ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/${{ env.APP_NAME }}.dmg
+          draft: false
+          prerelease: false

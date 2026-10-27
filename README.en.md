@@ -59,9 +59,18 @@ Agents not on the list can be **added manually**: drag a skill folder into the s
 
 ## Installation
 
-Drag `SkillReader.app` into the Applications folder and double-click (right-click → Open on first launch).
+**Option 1 · Download** (recommended): grab `SkillReader-<version>.dmg` from
+[Releases](https://github.com/huweidong-ai/skill-reader/releases/latest), open it and drag
+SkillReader into Applications (unsigned builds: right-click → Open on first launch).
 
-Build from source:
+**Option 2 · Homebrew**:
+
+```bash
+brew tap huweidong-ai/tap
+brew install --cask skillreader
+```
+
+**Option 3 · Build from source**:
 
 ```bash
 cd SkillReaderApp

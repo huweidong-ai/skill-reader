@@ -57,9 +57,17 @@ SkillReader 就是为这三件事生的。
 
 ## 安装
 
-构建产物为 `SkillReader.app`，拖入「应用程序」文件夹，双击即可使用（首次启动右键 → 打开）。
+**方式一 · 下载安装包**（推荐）：到 [Releases](https://github.com/huweidong-ai/skill-reader/releases/latest)
+下载 `SkillReader-<版本>.dmg`，打开后把 SkillReader 拖入 Applications（未签名版本首次启动右键 → 打开）。
 
-源码构建：
+**方式二 · Homebrew**：
+
+```bash
+brew tap huweidong-ai/tap
+brew install --cask skillreader
+```
+
+**方式三 · 源码构建**：
 
 ```bash
 cd SkillReaderApp
