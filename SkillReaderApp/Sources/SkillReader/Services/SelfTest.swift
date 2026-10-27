@@ -465,6 +465,81 @@ enum SelfTest {
             check(fm.fileExists(atPath: tLink), "b: target distribution link survives re-sync")
         }
 
+        // ---- 快照与恢复（配置历史 / 撤销采纳）----
+        do {
+            let fm = FileManager.default
+            let base = (NSTemporaryDirectory() as NSString)
+                .appendingPathComponent("sr_selftest_snap_\(UUID().uuidString)")
+            try? fm.createDirectory(atPath: base, withIntermediateDirectories: true)
+            let lib = (base as NSString).appendingPathComponent("library")
+            let backup = (base as NSString).appendingPathComponent("backups")
+            let agentX = (base as NSString).appendingPathComponent("agentX-skills")
+            let target = (base as NSString).appendingPathComponent("target-skills")
+            try? fm.createDirectory(atPath: agentX, withIntermediateDirectories: true)
+            try? fm.createDirectory(atPath: target, withIntermediateDirectories: true)
+            let cfgPath = (base as NSString).appendingPathComponent("distribute.json")
+
+            // 1) 配置快照：首次无配置时不产生快照；写入后再次快照产生 1 份
+            check(SkillDistributor.configSnapshots(backupDir: backup).isEmpty,
+                  "snap: no snapshots before any config write")
+            SkillDistributor.snapshotConfig(configPath: cfgPath, backupDir: backup)
+            check(SkillDistributor.configSnapshots(backupDir: backup).isEmpty,
+                  "snap: snapshot with no config file is a no-op")
+            let enc = JSONEncoder()
+            let cfgData = try! enc.encode(SkillDistributor.Config())
+            try! cfgData.write(to: URL(fileURLWithPath: cfgPath))
+            SkillDistributor.snapshotConfig(configPath: cfgPath, backupDir: backup)
+            let snaps = SkillDistributor.configSnapshots(backupDir: backup)
+            check(snaps.count == 1, "snap: one snapshot after first save (got \(snaps.count))")
+
+            // 2) 采纳 → 撤销采纳：恢复原始目录、删库内条目、清配置
+            let d = (agentX as NSString).appendingPathComponent("skill-a")
+            try? fm.createDirectory(atPath: d, withIntermediateDirectories: true)
+            try? "orig".write(toFile: (d as NSString).appendingPathComponent("SKILL.md"),
+                              atomically: true, encoding: .utf8)
+            _ = SkillDistributor.adopt(agentId: "x", skillDirs: [agentX], library: lib, backupRoot: backup)
+            check((try? fm.destinationOfSymbolicLink(atPath: d)) != nil, "snap: adopted link exists")
+
+            var cfg = SkillDistributor.Config()
+            cfg.skills["x__skill-a"] = ["target"]
+            try! enc.encode(cfg).write(to: URL(fileURLWithPath: cfgPath))
+            let _ = SkillDistributor.sync(library: lib, platformDirs: ["target": [target]], config: cfg)
+
+            let ok = SkillDistributor.unadopt(agentId: "x", skillName: "skill-a", skillDirs: [agentX],
+                                              library: lib, backupRoot: backup, configPath: cfgPath)
+            check(ok, "snap: unadopt succeeded")
+            // 原始目录恢复（真实目录，非链接）
+            var isDir: ObjCBool = false
+            check(fm.fileExists(atPath: d, isDirectory: &isDir) && isDir.boolValue
+                  && (try? fm.destinationOfSymbolicLink(atPath: d)) == nil,
+                  "snap: original real dir restored (no symlink)")
+            check(fm.fileExists(atPath: (d as NSString).appendingPathComponent("SKILL.md")),
+                  "snap: restored SKILL.md content present")
+            // 中心库条目已删
+            check(!fm.fileExists(atPath: (lib as NSString).appendingPathComponent("x__skill-a")),
+                  "snap: library canonical removed after unadopt")
+            // 分发配置已清、target 分发链接被 sync 移除
+            if let data = try? Data(contentsOf: URL(fileURLWithPath: cfgPath)),
+               let restored = try? JSONDecoder().decode(SkillDistributor.Config.self, from: data) {
+                check(restored.skills["x__skill-a"] == nil, "snap: config entry cleared")
+            } else {
+                check(false, "snap: config readable after unadopt")
+            }
+            check(!fm.fileExists(atPath: (target as NSString).appendingPathComponent("skill-a")),
+                  "snap: target distribution link cleaned after unadopt")
+
+            // 3) 无备份时撤销采纳拒绝执行（避免丢数据）
+            let d2 = (agentX as NSString).appendingPathComponent("skill-z")
+            try? fm.createSymbolicLink(atPath: d2, withDestinationPath: (lib as NSString).appendingPathComponent("x__skill-z"))
+            let libZ = (lib as NSString).appendingPathComponent("x__skill-z")
+            try? fm.createDirectory(atPath: libZ, withIntermediateDirectories: true)
+            check(!SkillDistributor.unadopt(agentId: "x", skillName: "skill-z", skillDirs: [agentX],
+                                            library: lib, backupRoot: backup, configPath: cfgPath),
+                  "snap: unadopt refused without backup")
+            check(fm.fileExists(atPath: d2) && (try? fm.destinationOfSymbolicLink(atPath: d2)) != nil,
+                  "snap: link untouched when unadopt refused")
+        }
+
         print("-----------------------------")
         print("SelfTest: \(passed) passed, \(failed) failed")
         return failed == 0 ? 0 : 1

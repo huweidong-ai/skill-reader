@@ -81,6 +81,8 @@ final class SkillDistributor {
     }
 
     func saveConfig(_ config: Config) {
+        // 改动前自动快照旧配置（可回滚）
+        Self.snapshotConfig(configPath: configPath, backupDir: backupDir)
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let data = try? enc.encode(config) {
@@ -224,6 +226,123 @@ final class SkillDistributor {
             }
         }
         return (imported, linked)
+    }
+
+    // MARK: - 快照与恢复
+
+    /// 把当前 distribute.json 快照到 `backups/config-history/`，只保留最近 20 份。
+    /// 纯文件 IO，路径可注入便于自测。
+    static func snapshotConfig(configPath: String, backupDir: String) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: configPath) else { return }
+        let dir = (backupDir as NSString).appendingPathComponent("config-history")
+        try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let dest = (dir as NSString).appendingPathComponent("distribute-\(timestamp()).json")
+        try? fm.removeItem(atPath: dest)
+        try? fm.copyItem(atPath: configPath, toPath: dest)
+        // 只保留最近 20 份（文件名含时间戳，字典序即时间序）
+        let files = configSnapshots(backupDir: backupDir)
+        if files.count > 20 {
+            for f in files.dropFirst(20) { try? fm.removeItem(atPath: f) }
+        }
+    }
+
+    static func timestamp() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd-HHmmss-SSS"
+        return f.string(from: Date())
+    }
+
+    /// 配置快照列表（新 → 旧）
+    static func configSnapshots(backupDir: String) -> [String] {
+        let dir = (backupDir as NSString).appendingPathComponent("config-history")
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return [] }
+        return entries.filter { $0.hasPrefix("distribute-") && $0.hasSuffix(".json") }
+            .sorted(by: >)
+            .map { (dir as NSString).appendingPathComponent($0) }
+    }
+
+    /// 恢复某份配置快照并重新同步分发
+    @discardableResult
+    func restoreConfigSnapshot(atPath path: String) -> Bool {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: path) else { return false }
+        // 恢复前把当前配置也快照一份，可再撤销恢复
+        Self.snapshotConfig(configPath: configPath, backupDir: backupDir)
+        do {
+            try? fm.removeItem(atPath: configPath)
+            try fm.copyItem(atPath: path, toPath: configPath)
+        } catch { return false }
+        _ = syncAll()
+        return true
+    }
+
+    /// 中心库全部条目（canonical 名，排序）
+    func libraryEntries() -> [String] {
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: libraryDir) else { return [] }
+        return entries.filter { !$0.hasPrefix(".") }.sorted()
+    }
+
+    /// 某采纳 skill 的原始备份路径（不存在返回 nil = 不可恢复）
+    func backupPath(agentId: String, skillName: String) -> String? {
+        let p = ((backupDir as NSString).appendingPathComponent(agentId) as NSString)
+            .appendingPathComponent(skillName)
+        var isDir: ObjCBool = false
+        return (FileManager.default.fileExists(atPath: p, isDirectory: &isDir) && isDir.boolValue) ? p : nil
+    }
+
+    /// 撤销采纳：移除采纳链接 → 恢复原始目录 → 清除分发配置 → 重新同步。
+    @discardableResult
+    func unadopt(agentId: String, skillName: String, skillDirs: [String]) -> Bool {
+        Self.unadopt(agentId: agentId, skillName: skillName, skillDirs: skillDirs,
+                     library: libraryDir, backupRoot: backupDir, configPath: configPath,
+                     sync: { [weak self] in self?.syncAll() ?? 0 })
+    }
+
+    /// 撤销采纳核心（路径可注入便于自测）。
+    /// 流程：确认采纳链接存在且指向库内条目 → 确认原始备份存在（否则拒绝，避免丢数据）→
+    /// 清除分发配置 → 删链接 → 备份目录 move 回原位 → 删除中心库条目 → 重新同步。
+    static func unadopt(agentId: String, skillName: String, skillDirs: [String],
+                        library: String, backupRoot: String, configPath: String,
+                        sync: (() -> Int)? = nil) -> Bool {
+        let fm = FileManager.default
+        let canonical = Self.canonical(owner: agentId, skill: skillName)
+        let libCanonical = (library as NSString).appendingPathComponent(canonical)
+        for dir in skillDirs {
+            let link = (dir as NSString).appendingPathComponent(skillName)
+            guard let dest = try? fm.destinationOfSymbolicLink(atPath: link) else { continue }
+            let destStd = ((dest as NSString).expandingTildeInPath as NSString).standardizingPath
+            let libStd = (libCanonical as NSString).standardizingPath
+            guard destStd == libStd else { continue }
+            // 1) 原始备份必须存在，否则不动（绝不丢数据）
+            let backup = ((backupRoot as NSString).appendingPathComponent(agentId) as NSString)
+                .appendingPathComponent(skillName)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: backup, isDirectory: &isDir), isDir.boolValue else { return false }
+            // 2) 清除分发配置
+            if let data = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
+               var cfg = try? JSONDecoder().decode(Config.self, from: data) {
+                cfg.skills[canonical] = nil
+                let enc = JSONEncoder()
+                enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+                if let out = try? enc.encode(cfg) {
+                    try? out.write(to: URL(fileURLWithPath: configPath))
+                }
+            }
+            // 3) 移除采纳链接并恢复原始目录；恢复失败则重建链接避免条目悬空
+            try? fm.removeItem(atPath: link)
+            do {
+                try fm.moveItem(atPath: backup, toPath: link)
+            } catch {
+                try? fm.createSymbolicLink(atPath: link, withDestinationPath: dest)
+                return false
+            }
+            // 4) 移除中心库条目（canonical 由 owner 唯一确定，不会误删其它 Agent 的同名 skill）
+            try? fm.removeItem(atPath: libCanonical)
+            _ = sync?()
+            return true
+        }
+        return false
     }
 
     // MARK: 私有

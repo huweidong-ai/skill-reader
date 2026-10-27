@@ -105,6 +105,10 @@ struct ContentView: View {
                             state.syncDistribution()
                         }
 
+                        Button(L10n.t("中心库总览…", "Library Overview…")) {
+                            state.showLibraryOverview = true
+                        }
+
                         Divider()
 
                         Menu(L10n.t("主题", "Theme")) {
@@ -158,8 +162,12 @@ struct ContentView: View {
         }
         .sheet(isPresented: Binding(
             get: { state.distributeSkillName != nil },
-            set: { if !$0 { state.distributeSkillName = nil } }
+            set: { if !$0 { state.cancelDistribute() } }
         )) { DistributeSheet() }
+        .sheet(isPresented: Binding(
+            get: { state.showLibraryOverview },
+            set: { if !$0 { state.showLibraryOverview = false } }
+        )) { LibraryOverviewSheet() }
     }
 
     // MARK: - 内容区（右侧）：面包屑 + 正文 + 可选大纲
@@ -373,7 +381,12 @@ struct DistributeSheet: View {
             Text(L10n.t("分发到平台", "Distribute to Platforms"))
                 .font(.headline)
 
-            if let name = state.distributeSkillName {
+            if state.batchCanonicals.count > 1 {
+                Text(L10n.t("批量分发 \(state.batchCanonicals.count) 个技能：\(state.batchCanonicals.prefix(4).map { SkillDistributor.linkBasename(for: $0) }.joined(separator: "、"))\(state.batchCanonicals.count > 4 ? " 等" : "")，以符号链接同步到以下 Agent 的 skills 目录。链接即同源：改中心库，各平台即时生效。",
+                              "Batch-distribute \(state.batchCanonicals.count) skills (\(state.batchCanonicals.prefix(4).map { SkillDistributor.linkBasename(for: $0) }.joined(separator: ", "))\(state.batchCanonicals.count > 4 ? " and more" : "")) via symlinks. One source of truth: edit the library, all platforms update instantly."))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            } else if let name = state.distributeSkillName {
                 Text(L10n.t("把「\(SkillDistributor.linkBasename(for: name))」以符号链接同步到以下 Agent 的 skills 目录。链接即同源：改中心库，各平台即时生效。",
                               "Sync \"\(SkillDistributor.linkBasename(for: name))\" to the skills directories of the following Agents via symlinks. One source of truth: edit the library, all platforms update instantly."))
                     .font(.system(size: 11))
@@ -419,7 +432,7 @@ struct DistributeSheet: View {
                         .foregroundStyle(.tertiary)
                 }
                 Spacer()
-                Button(L10n.t("取消", "Cancel")) { state.distributeSkillName = nil }
+                Button(L10n.t("取消", "Cancel")) { state.cancelDistribute() }
                     .keyboardShortcut(.escape, modifiers: [])
                 Button(L10n.t("保存并同步", "Save & Sync")) { state.saveDistribution() }
                     .keyboardShortcut(.return, modifiers: .command)
@@ -439,6 +452,198 @@ struct DistributeSheet: View {
                 else { state.distributePlatforms.remove(id) }
             }
         )
+    }
+}
+
+// MARK: - 中心库状态总览
+
+struct LibraryOverviewSheet: View {
+    @EnvironmentObject var state: AppState
+
+    private struct Entry {
+        let canonical: String
+        let platforms: [String]
+        let backupPath: String?   // 采纳前原始目录备份（存在 = 可恢复为独立目录）
+    }
+
+    private var entries: [Entry] {
+        let dist = SkillDistributor.shared
+        let config = dist.loadConfig()
+        let registry = AgentRegistry.shared
+        var result: [Entry] = []
+        for canonical in dist.libraryEntries() {
+            let ownerId: String
+            if let sep = canonical.range(of: "__") {
+                ownerId = String(canonical[..<sep.lowerBound])
+            } else {
+                ownerId = ""
+            }
+            let skillName = SkillDistributor.linkBasename(for: canonical)
+            var backup: String? = nil
+            if let agent = registry.agents.first(where: { $0.id == ownerId }) {
+                backup = dist.backupPath(agentId: agent.id, skillName: skillName)
+            }
+            result.append(Entry(canonical: canonical,
+                                platforms: config.skills[canonical] ?? [],
+                                backupPath: backup))
+        }
+        return result
+    }
+
+    private var snapshots: [String] {
+        SkillDistributor.configSnapshots(backupDir: SkillDistributor.shared.backupDir)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(L10n.t("中心库总览", "Library Overview"))
+                    .font(.headline)
+                Spacer()
+                Text(L10n.t("\(entries.count) 个技能", "\(entries.count) skill(s)"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+
+            if entries.isEmpty {
+                VStack(spacing: 6) {
+                    Text(L10n.t("中心库为空", "The library is empty"))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Text(L10n.t("右键任意技能 →「互通：复制到中心库并分发…」即可开始",
+                                "Right-click any skill → \"Share: Copy to library & distribute…\" to begin"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+            } else {
+                ScrollView {
+                    VStack(spacing: 6) {
+                        ForEach(entries, id: \.canonical) { entry in
+                            row(entry)
+                        }
+                    }
+                }
+                .frame(minHeight: 200, maxHeight: 320)
+            }
+
+            if !snapshots.isEmpty {
+                Divider()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.t("分发配置快照（改动前自动保存，可回滚）",
+                                "Config snapshots (auto-saved before each change, restorable)"))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                    ForEach(snapshots.prefix(3), id: \.self) { path in
+                        HStack {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tertiary)
+                            Text(displaySnapshotName(path))
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button(L10n.t("恢复", "Restore")) {
+                                restoreSnapshot(path)
+                            }
+                            .font(.system(size: 10))
+                            .controlSize(.small)
+                        }
+                    }
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button(L10n.t("关闭", "Close")) { state.showLibraryOverview = false }
+                    .keyboardShortcut(.escape, modifiers: [])
+            }
+        }
+        .padding(20)
+        .frame(width: 560)
+    }
+
+    private func row(_ entry: Entry) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "square.stack.3d.up")
+                .font(.system(size: 11))
+                .foregroundStyle(entry.platforms.isEmpty ? Color.secondary : Color.srAccent)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(SkillDistributor.linkBasename(for: entry.canonical))
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    if entry.platforms.isEmpty {
+                        Text(L10n.t("未分发", "Not distributed"))
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        ForEach(entry.platforms, id: \.self) { pid in
+                            Text(pid)
+                                .font(.system(size: 9))
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(Color.srAccent.opacity(0.1)))
+                                .foregroundStyle(Color.srAccent)
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 8)
+            if entry.platforms.isEmpty {
+                Button(L10n.t("分发…", "Distribute…")) {
+                    state.showLibraryOverview = false
+                    state.openDistribute(canonical: entry.canonical)
+                }
+                .controlSize(.small)
+            } else {
+                Button(L10n.t("编辑", "Edit")) {
+                    state.showLibraryOverview = false
+                    state.openDistribute(canonical: entry.canonical)
+                }
+                .controlSize(.small)
+                Button(L10n.t("撤销分发", "Remove")) {
+                    state.removeDistribution(canonical: entry.canonical)
+                }
+                .controlSize(.small)
+            }
+            if entry.backupPath != nil {
+                Button(L10n.t("恢复原始", "Restore Original")) {
+                    state.unadoptSkill(canonical: entry.canonical)
+                }
+                .controlSize(.small)
+                .help(L10n.t("把该技能从中心库撤出，恢复为来源 Agent 的原始独立目录",
+                             "Remove from the library and restore the original folder in the source Agent"))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.4))
+        )
+    }
+
+    private func displaySnapshotName(_ path: String) -> String {
+        let name = (path as NSString).lastPathComponent
+        // distribute-yyyyMMdd-HHmmss-SSS.json → yyyy-MM-dd HH:mm:ss
+        let parts = name
+            .replacingOccurrences(of: "distribute-", with: "")
+            .replacingOccurrences(of: ".json", with: "")
+            .components(separatedBy: "-")
+        guard parts.count >= 4 else { return name }
+        let d = parts[0]
+        return "\(d.prefix(4))-\(d.dropFirst(4).prefix(2))-\(d.suffix(2)) \(parts[1]):\(parts[2])"
+    }
+
+    private func restoreSnapshot(_ path: String) {
+        let ok = SkillDistributor.shared.restoreConfigSnapshot(atPath: path)
+        state.flashToast(ok
+                         ? L10n.t("已恢复配置快照并重新同步", "Snapshot restored and re-synced")
+                         : L10n.t("恢复失败", "Restore failed"),
+                         isError: !ok)
     }
 }
 
@@ -752,13 +957,14 @@ struct SkillRow: View {
                     Divider()
                     Button(L10n.t("创建副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: nil) }
                     Button(L10n.t("移入废纸篓", "Move to Trash")) { state.trashItem(skill: skill, rel: nil) }
-                    if state.canUndoDelete {
-                        Button(L10n.t("撤销删除", "Undo Delete")) { state.undoLastTrash() }
+                    if state.canUndoDelete, let pending = state.lastTrashedItem {
+                        Button(L10n.t("撤销删除「\(pending.name)」", "Undo Delete \(pending.name)")) { state.undoLastTrash() }
                     }
                     Divider()
                     Button(L10n.t("打开访达", "Show in Finder")) { state.revealItem(skill: skill, rel: nil) }
                     Divider()
                     Button(L10n.t("互通：复制到中心库并分发…", "Share: Copy to library & distribute…")) { state.copySkillToLibrary(skill) }
+                    Button(L10n.t("互通：共享本源全部技能到中心库…", "Share: Copy all skills of this source to library…")) { state.batchShareAllToLibrary() }
                 }
             } else {
                 Button {
@@ -822,13 +1028,14 @@ struct SkillRow: View {
                     Divider()
                     Button(L10n.t("创建副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: nil) }
                     Button(L10n.t("移入废纸篓", "Move to Trash")) { state.trashItem(skill: skill, rel: nil) }
-                    if state.canUndoDelete {
-                        Button(L10n.t("撤销删除", "Undo Delete")) { state.undoLastTrash() }
+                    if state.canUndoDelete, let pending = state.lastTrashedItem {
+                        Button(L10n.t("撤销删除「\(pending.name)」", "Undo Delete \(pending.name)")) { state.undoLastTrash() }
                     }
                     Divider()
                     Button(L10n.t("打开访达", "Show in Finder")) { state.revealItem(skill: skill, rel: nil) }
                     Divider()
                     Button(L10n.t("互通：复制到中心库并分发…", "Share: Copy to library & distribute…")) { state.copySkillToLibrary(skill) }
+                    Button(L10n.t("互通：共享本源全部技能到中心库…", "Share: Copy all skills of this source to library…")) { state.batchShareAllToLibrary() }
                 }
 
                 if isExpanded {
@@ -971,8 +1178,8 @@ struct DirNodeView: View {
             Divider()
             Button(L10n.t("创建副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: node.path) }
             Button(L10n.t("移入废纸篓", "Move to Trash")) { state.trashItem(skill: skill, rel: node.path) }
-            if state.canUndoDelete {
-                Button(L10n.t("撤销删除", "Undo Delete")) { state.undoLastTrash() }
+            if state.canUndoDelete, let pending = state.lastTrashedItem {
+                Button(L10n.t("撤销删除「\(pending.name)」", "Undo Delete \(pending.name)")) { state.undoLastTrash() }
             }
             Divider()
             Button(L10n.t("打开访达", "Show in Finder")) { state.revealItem(skill: skill, rel: node.path) }
@@ -1057,8 +1264,8 @@ struct FileRowView: View {
             Divider()
             Button(L10n.t("创建副本", "Duplicate")) { state.duplicateItem(skill: skill, rel: node.path) }
             Button(L10n.t("移入废纸篓", "Move to Trash")) { state.trashItem(skill: skill, rel: node.path) }
-            if state.canUndoDelete {
-                Button(L10n.t("撤销删除", "Undo Delete")) { state.undoLastTrash() }
+            if state.canUndoDelete, let pending = state.lastTrashedItem {
+                Button(L10n.t("撤销删除「\(pending.name)」", "Undo Delete \(pending.name)")) { state.undoLastTrash() }
             }
             Divider()
             Button(L10n.t("打开访达", "Show in Finder")) { state.revealItem(skill: skill, rel: node.path) }

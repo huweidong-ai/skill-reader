@@ -204,6 +204,8 @@ final class AppState: ObservableObject {
     // ---- Skill 互通（分发到平台）----
     @Published var distributeSkillName: String? = nil   // nil = sheet 关闭；非 nil = 正在配置该 skill
     @Published var distributePlatforms: Set<String> = [] // sheet 中勾选的平台 id
+    @Published var batchCanonicals: [String] = []        // 批量分发模式：本次待配置的 canonical 列表
+    @Published var showLibraryOverview = false           // 中心库状态总览 sheet
 
     // ---- 主题 ----
     @Published var theme: ThemeMode = .auto
@@ -326,8 +328,29 @@ final class AppState: ObservableObject {
     /// 打开「分发到平台」sheet，预填当前已启用平台。
     /// `skill.name` 在中心库 root 下即 canonical（`<owner>__<skill>`），直接作为配置键。
     func openDistribute(for skill: Skill) {
-        distributeSkillName = skill.name
-        distributePlatforms = Set(SkillDistributor.shared.enabledPlatforms(for: skill.name))
+        openDistribute(canonical: skill.name)
+    }
+
+    /// 以 canonical 直接打开分发配置（状态总览页入口）
+    func openDistribute(canonical: String) {
+        batchCanonicals = []
+        distributeSkillName = canonical
+        distributePlatforms = Set(SkillDistributor.shared.enabledPlatforms(for: canonical))
+    }
+
+    /// 批量分发：一组 canonical 共用同一份平台勾选，保存时一起生效
+    func openBatchDistribute(_ canonicals: [String]) {
+        guard let first = canonicals.first else { return }
+        batchCanonicals = canonicals
+        distributeSkillName = first
+        distributePlatforms = Set(SkillDistributor.shared.enabledPlatforms(for: first))
+    }
+
+    /// 关闭分发 sheet（含批量状态复位）
+    func cancelDistribute() {
+        distributeSkillName = nil
+        distributePlatforms = []
+        batchCanonicals = []
     }
 
     /// 当前 root 对应的 owner Agent id（用于中心库命名去重）；非 Agent 挂载则记 "imported"。
@@ -376,20 +399,25 @@ final class AppState: ObservableObject {
         flashToast(L10n.t("已复制到中心库", "Copied to library"))
     }
 
-    /// 保存分发配置并立即同步
+    /// 保存分发配置并立即同步（单个或批量模式）
     func saveDistribution() {
-        guard let name = distributeSkillName else { return }
+        guard distributeSkillName != nil else { return }
         var config = SkillDistributor.shared.loadConfig()
-        if distributePlatforms.isEmpty {
-            config.skills[name] = nil
-        } else {
-            config.skills[name] = distributePlatforms.sorted()
+        let targets = batchCanonicals.isEmpty ? [distributeSkillName!] : batchCanonicals
+        for name in targets {
+            if distributePlatforms.isEmpty {
+                config.skills[name] = nil
+            } else {
+                config.skills[name] = distributePlatforms.sorted()
+            }
         }
         SkillDistributor.shared.saveConfig(config)
         let n = SkillDistributor.shared.syncAll()
-        distributeSkillName = nil
+        let count = targets.count
+        cancelDistribute()
         flashToast(n > 0
-                   ? L10n.t("已分发到 \(n) 个平台", "Distributed to \(n) platform(s)")
+                   ? L10n.t("已分发 \(count == 1 ? "" : "\(count) 个技能，合计")到 \(n) 个平台挂载",
+                            "Distributed \(count == 1 ? "" : "\(count) skills, ")to \(n) platform mount(s)")
                    : L10n.t("已保存（未分发到任何平台）", "Saved (not distributed to any platform)"))
     }
 
@@ -399,6 +427,67 @@ final class AppState: ObservableObject {
         flashToast(n > 0
                    ? L10n.t("已同步 \(n) 个平台挂载", "Synced \(n) platform mount(s)")
                    : L10n.t("没有待分发的 skill", "No skills pending distribution"))
+    }
+
+    /// 批量共享：把当前 root 的全部技能包复制进中心库，并打开批量分发 sheet
+    func batchShareAllToLibrary() {
+        guard !skills.isEmpty else { return }
+        if isSkillInLibrary {
+            flashToast(L10n.t("当前已在中心库，无需复制", "Already browsing the library"), isError: true)
+            return
+        }
+        guard let root = store.currentRootPath else { return }
+        let owner = ownerIdForCurrentRoot()
+        let fm = FileManager.default
+        var imported: [String] = []
+        var failed = 0
+        for skill in skills where skill.kind == .package {
+            let src = (root as NSString).appendingPathComponent(skill.path)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: src, isDirectory: &isDir), isDir.boolValue else {
+                failed += 1
+                continue
+            }
+            let canonical = SkillDistributor.canonical(owner: owner, skill: skill.name)
+            if SkillDistributor.shared.importToLibrary(from: src, skillName: canonical) != nil {
+                imported.append(canonical)
+            } else {
+                failed += 1
+            }
+        }
+        guard !imported.isEmpty else {
+            flashToast(L10n.t("批量共享失败", "Batch share failed"), isError: true)
+            return
+        }
+        store.loadRoots()
+        reloadSkills()
+        openBatchDistribute(imported)
+        flashToast(L10n.t("已导入 \(imported.count) 个技能到中心库\(failed > 0 ? "，\(failed) 个失败" : "")",
+                          "Imported \(imported.count) skill(s) to library\(failed > 0 ? ", \(failed) failed" : "")"))
+    }
+
+    /// 撤销某 skill 的全部分发（保留中心库条目与采纳链接）
+    func removeDistribution(canonical: String) {
+        SkillDistributor.shared.removeDistribution(for: canonical)
+        flashToast(L10n.t("已撤销「\(SkillDistributor.linkBasename(for: canonical))」的分发",
+                          "Removed distribution for \"\(SkillDistributor.linkBasename(for: canonical))\""))
+    }
+
+    /// 撤销采纳：把某 Agent 的某 skill 从「指向中心库」恢复为原始独立目录（含备份回迁）
+    func unadoptSkill(canonical: String) {
+        guard let sep = canonical.range(of: "__") else { return }
+        let ownerId = String(canonical[..<sep.lowerBound])
+        let skillName = SkillDistributor.linkBasename(for: canonical)
+        guard let agent = AgentRegistry.shared.agents.first(where: { $0.id == ownerId }) else {
+            flashToast(L10n.t("找不到来源 Agent，无法恢复", "Source Agent not found; cannot restore"), isError: true)
+            return
+        }
+        let ok = SkillDistributor.shared.unadopt(agentId: ownerId, skillName: skillName, skillDirs: agent.allSkillPaths)
+        reloadSkills()
+        flashToast(ok
+                   ? L10n.t("已恢复「\(skillName)」为 \(agent.name) 的原始目录", "Restored \"\(skillName)\" to original folder in \(agent.name)")
+                   : L10n.t("恢复失败（无备份或条目非采纳来源）", "Restore failed (no backup, or not an adopted entry)"),
+                   isError: !ok)
     }
 
     // MARK: - 技能列表
@@ -688,26 +777,42 @@ final class AppState: ObservableObject {
         alert.addButton(withTitle: L10n.t("取消", "Cancel"))
         if alert.runModal() == .alertFirstButtonReturn {
             var trashedURL: NSURL? = nil
-            guard store.trashItem(at: abs, resultingItemURL: &trashedURL) else {
-                flashToast(L10n.t("删除失败", "Delete failed"), isError: true)
+            do {
+                try store.moveToTrash(at: abs, resultingItemURL: &trashedURL)
+            } catch {
+                // 失败也必须刷新文件树。否则当失败原因是「路径已不存在」时，
+                // 界面上会继续显示一个磁盘上早已没有的条目，看起来像「文件还在」。
+                refreshAfterFileOp(skill: skill)
+                flashToast(trashFailureMessage(for: error, path: abs), isError: true)
                 return
             }
             if let url = trashedURL as URL? {
                 lastTrashedItem = LastTrashRecord(originalPath: abs, trashedURL: url, skillPath: skill.path, name: name)
-            } else {
-                lastTrashedItem = nil
             }
+            // trashedURL 为 nil 表示这次是「直接删除」而非进废纸篓（例如所在卷没有废纸篓），
+            // 本次无法撤销，但上一次那条记录仍然有效，不能连带清掉。
             flashToast(L10n.t("已移入废纸篓：\(name)", "Moved to Trash: \(name)"))
             refreshAfterFileOp(skill: skill)
         }
     }
 
     /// 撤销最后一次删除：从废纸篓把文件移回原路径，并刷新对应 skill 树。
+    ///
+    /// 注意：记录是「全局最后一次成功删除」，未必来自刚才那次操作，菜单项因此
+    /// 带上文件名（见 ContentView），避免被当成「撤销当前这个文件」。
     func undoLastTrash() {
         guard let record = lastTrashedItem else { return }
         guard FileManager.default.fileExists(atPath: record.trashedURL.path) else {
             lastTrashedItem = nil
             flashToast(L10n.t("原文件已不在废纸篓，无法撤销", "Original file is no longer in Trash, cannot undo"), isError: true)
+            return
+        }
+        // 原位置已有同名文件：先判断再搬，否则只会得到一个看不懂的系统错误。
+        guard !FileManager.default.fileExists(atPath: record.originalPath) else {
+            lastTrashedItem = nil
+            flashToast(L10n.t("原位置已存在「\(record.name)」，未做改动",
+                              "An item named \(record.name) already exists at the original location; nothing changed"),
+                       isError: true)
             return
         }
         do {
@@ -723,8 +828,50 @@ final class AppState: ObservableObject {
                 refreshAfterFileOp(skill: skill)
             }
         } catch {
-            flashToast(L10n.t("撤销删除失败", "Undo delete failed"), isError: true)
+            // 失败后清空记录：留着只会让菜单长期挂着一个必然失败的入口。
+            lastTrashedItem = nil
+            flashToast(undoFailureMessage(for: error, name: record.name), isError: true)
         }
+    }
+
+    /// 把「移入废纸篓」的失败原因翻译成用户能据此行动的一句话。
+    private func trashFailureMessage(for error: Error, path: String) -> String {
+        let ns = error as NSError
+        if !FileManager.default.fileExists(atPath: path) {
+            return L10n.t("文件已不存在，列表已刷新", "File no longer exists; list refreshed")
+        }
+        if ns.domain == NSCocoaErrorDomain && ns.code == NSFileWriteFileExistsError {
+            return L10n.t("废纸篓中已有同名项目，请先清理废纸篓",
+                          "An item with the same name is already in the Trash")
+        }
+        if isPermissionDenied(ns) {
+            return L10n.t("没有权限移入废纸篓", "No permission to move to Trash")
+        }
+        return L10n.t("删除失败：\(ns.localizedDescription)", "Delete failed: \(ns.localizedDescription)")
+    }
+
+    /// 把撤销失败的原始错误翻译成可行动的提示。
+    private func undoFailureMessage(for error: Error, name: String) -> String {
+        let ns = error as NSError
+        if isPermissionDenied(ns) {
+            return L10n.t("撤销失败：无法访问废纸篓。请在「系统设置 › 隐私与安全性 › 完全磁盘访问权限」中允许 SkillReader",
+                          "Undo failed: cannot access the Trash. Allow SkillReader in System Settings › Privacy & Security › Full Disk Access")
+        }
+        if ns.domain == NSCocoaErrorDomain && ns.code == NSFileWriteFileExistsError {
+            return L10n.t("撤销失败：原位置已存在「\(name)」",
+                          "Undo failed: an item named \(name) already exists at the original location")
+        }
+        return L10n.t("撤销删除失败：\(ns.localizedDescription)", "Undo delete failed: \(ns.localizedDescription)")
+    }
+
+    /// 是否为系统权限拒绝（TCC 走 POSIX EPERM/EACCES，Foundation 层走 CocoaError）。
+    private func isPermissionDenied(_ error: NSError) -> Bool {
+        if error.domain == NSPOSIXErrorDomain,
+           error.code == Int(EPERM) || error.code == Int(EACCES) {
+            return true
+        }
+        return error.domain == NSCocoaErrorDomain
+            && (error.code == NSFileReadNoPermissionError || error.code == NSFileWriteNoPermissionError)
     }
 
     func revealItem(skill: Skill, rel: String?) {
